@@ -15,15 +15,13 @@ import (
 	"github.com/go-task/task/v3/taskfile/ast"
 )
 
-type TaskRunner func(name string, vars *ast.Vars) (string, error)
-
 type HCLEvaluator struct {
 	EvalCtx *hcl.EvalContext
 	vars    map[string]cty.Value
 	env     map[string]cty.Value
 }
 
-func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner, tasks *ast.Tasks) *HCLEvaluator {
+func NewHCLEvaluator(vars, env *ast.Vars, tasks *ast.Tasks) *HCLEvaluator {
 	varVals := map[string]cty.Value{}
 	if vars != nil {
 		for k, v := range vars.All() {
@@ -57,23 +55,19 @@ func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner, tasks *ast.Tasks) *
 
 	ctx := &hcl.EvalContext{
 		Variables: varsMap,
-		Functions: builtinFunctions(runner),
+		Functions: builtinFunctions(),
 	}
 	return &HCLEvaluator{EvalCtx: ctx, vars: varVals, env: envVals}
 }
 
-func builtinFunctions(runner TaskRunner) map[string]function.Function {
-
+func builtinFunctions() map[string]function.Function {
 	funcs := NewFunctionMap()
 	funcs["env"] = envFunc()
 	funcs["sh"] = shellFunc("/bin/sh")
 	funcs["bash"] = shellFunc("/bin/bash")
 	funcs["zsh"] = shellFunc("/bin/zsh")
 	funcs["tuple"] = tupleFunc()
-
-	if runner != nil {
-		funcs["exec"] = execFunc(runner)
-	}
+	funcs["exec"] = execFunc()
 	return funcs
 }
 
@@ -242,16 +236,20 @@ func shellFunc(shell string) function.Function {
 	})
 }
 
-func execFunc(runner TaskRunner) function.Function {
+func execFunc() function.Function {
 	return function.New(&function.Spec{
 		Params:   []function.Parameter{{Name: "task", Type: cty.String}},
 		VarParam: &function.Parameter{Name: "vars", Type: cty.DynamicPseudoType},
-		Type:     function.StaticReturnType(cty.String),
+		Type: function.StaticReturnType(cty.Object(map[string]cty.Type{
+			"task": cty.String,
+			"vars": cty.DynamicPseudoType,
+		})),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			name := args[0].AsString()
-			var depVars *ast.Vars
+			varsValue := cty.NullVal(cty.DynamicPseudoType)
+
 			if len(args) > 1 && args[1].Type().IsObjectType() {
-				depVars = ast.NewVars()
+				varsMap := make(map[string]cty.Value)
 				for k := range args[1].Type().AttributeTypes() {
 					val := args[1].GetAttr(k)
 					var depVal string
@@ -270,14 +268,16 @@ func execFunc(runner TaskRunner) function.Function {
 					default:
 						depVal = val.GoString()
 					}
-					depVars.Set(k, ast.Var{Value: depVal})
+					varsMap[k] = cty.StringVal(depVal)
 				}
+				varsValue = cty.ObjectVal(varsMap)
 			}
-			out, err := runner(name, depVars)
-			if err != nil {
-				return cty.NilVal, err
-			}
-			return cty.StringVal(out), nil
+
+			// Return task info as an object (no execution here!)
+			return cty.ObjectVal(map[string]cty.Value{
+				"task": cty.StringVal(name),
+				"vars": varsValue,
+			}), nil
 		},
 	})
 }
@@ -298,11 +298,7 @@ func (e *HCLEvaluator) EvalValue(expr hcl.Expression) (any, error) {
 	return fromCty(val, expr)
 }
 
-func (e *HCLEvaluator) EvalString(expr hcl.Expression) (string, error) {
-	v, err := e.EvalValue(expr)
-	if err != nil {
-		return "", err
-	}
+func (e *HCLEvaluator) ValueToString(v any) (string, error) {
 	switch val := v.(type) {
 	case string:
 		return val, nil
@@ -318,7 +314,90 @@ func (e *HCLEvaluator) EvalString(expr hcl.Expression) (string, error) {
 		}
 		return "false", nil
 	default:
-		rng := expr.Range()
-		return "", fmt.Errorf("unsupported value type %T for %s:%d,%d-%d,%d", v, filepathext.TryAbsToRel(rng.Filename), rng.Start.Line, rng.Start.Column, rng.End.Line, rng.End.Column)
+		return "", fmt.Errorf("unsupported value type %T", v)
 	}
+}
+
+// CtyValueToString converts a cty.Value directly to string without Go value conversion
+func (e *HCLEvaluator) CtyValueToString(val cty.Value, expr hcl.Expression) (string, error) {
+	switch {
+	case val.Type() == cty.String:
+		return val.AsString(), nil
+	case val.Type() == cty.Number:
+		bf := val.AsBigFloat()
+		if i, acc := bf.Int64(); acc == 1 {
+			return fmt.Sprintf("%d", i), nil
+		}
+		f, _ := bf.Float64()
+		return fmt.Sprintf("%v", f), nil
+	case val.Type() == cty.Bool:
+		if val.True() {
+			return "true", nil
+		}
+		return "false", nil
+	default:
+		rng := expr.Range()
+		return "", fmt.Errorf("unsupported value type %s for %s:%d,%d-%d,%d", val.Type().FriendlyName(), filepathext.TryAbsToRel(rng.Filename), rng.Start.Line, rng.Start.Column, rng.End.Line, rng.End.Column)
+	}
+}
+
+func (e *HCLEvaluator) EvalString(expr hcl.Expression) (string, error) {
+	val, diags := expr.Value(e.EvalCtx)
+	if diags.HasErrors() {
+		return "", diags
+	}
+	return e.CtyValueToString(val, expr)
+}
+
+// EvaluatedCommand represents the result of evaluating an HCL command expression
+type EvaluatedCommand struct {
+	IsTaskCall bool
+	TaskName   string
+	TaskVars   *ast.Vars
+	CmdString  string
+}
+
+// EvalCommand evaluates an HCL expression and returns either a task call or command string
+func (e *HCLEvaluator) EvalCommand(expr hcl.Expression) (*EvaluatedCommand, error) {
+	// Evaluate the HCL expression once
+	result, diags := expr.Value(e.EvalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	// Check if result is an object with a "task" attribute (task call)
+	if result.Type().IsObjectType() && result.Type().HasAttribute("task") {
+		taskName := result.GetAttr("task").AsString()
+		cmd := &EvaluatedCommand{
+			IsTaskCall: true,
+			TaskName:   taskName,
+		}
+
+		// Extract variables if present
+		if result.Type().HasAttribute("vars") && !result.GetAttr("vars").IsNull() {
+			varsVal := result.GetAttr("vars")
+			if varsVal.Type().IsObjectType() {
+				cmd.TaskVars = ast.NewVars()
+				for k := range varsVal.Type().AttributeTypes() {
+					attrVal := varsVal.GetAttr(k)
+					if attrVal.Type() == cty.String {
+						cmd.TaskVars.Set(k, ast.Var{Value: attrVal.AsString()})
+					}
+				}
+			}
+		}
+
+		return cmd, nil
+	}
+
+	// Convert cty.Value directly to string (no re-evaluation)
+	cmdString, err := e.CtyValueToString(result, expr)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &EvaluatedCommand{
+		IsTaskCall: false,
+		CmdString:  cmdString,
+	}, nil
 }

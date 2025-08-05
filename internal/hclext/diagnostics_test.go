@@ -16,7 +16,7 @@ func TestUnsupportedTupleErrorIncludesRange(t *testing.T) {
 	require.False(t, diags.HasErrors())
 	vars := ast.NewVars()
 	vars.Set("INVALID", ast.Var{Expr: expr})
-	r := NewResolver(vars, nil, nil, nil)
+	r := NewResolver(vars, nil, nil)
 	_, _, err := r.Resolve()
 	require.Error(t, err)
 	rng := expr.Range()

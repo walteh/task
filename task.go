@@ -284,7 +284,7 @@ func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode 
 	vars, _ := e.Compiler.GetVariables(origTask, call)
 	cache := &templater.Cache{Vars: vars}
 	runtimeEnv := env.GetEnviron()
-	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask, e.Taskfile.Tasks)
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.Taskfile.Tasks)
 	extra := map[string]any{}
 
 	if deferredExitCode != nil && *deferredExitCode > 0 {
@@ -292,11 +292,18 @@ func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode 
 	}
 
 	if origTask.IsHCL && cmd.Expr != nil {
-		val, err := hclEval.EvalString(cmd.Expr)
+		evalCmd, err := hclEval.EvalCommand(cmd.Expr)
 		if err != nil {
 			return
 		}
-		cmd.Cmd = val
+		
+		if evalCmd.IsTaskCall {
+			cmd.Task = evalCmd.TaskName
+			cmd.Vars = evalCmd.TaskVars
+			cmd.Cmd = ""
+		} else {
+			cmd.Cmd = evalCmd.CmdString
+		}
 	} else {
 		cmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
 		cmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
@@ -541,3 +548,4 @@ func shouldRunOnCurrentPlatform(platforms []*ast.Platform) bool {
 	}
 	return false
 }
+

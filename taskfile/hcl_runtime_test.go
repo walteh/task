@@ -22,7 +22,7 @@ func TestBlockSyntaxEnforced(t *testing.T) {
 }
 
 func TestShFunctionSuccess(t *testing.T) {
-	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil, nil)
+	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil)
 	expr, diags := hclsyntax.ParseExpression([]byte(`sh("echo hi")`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	v, err := eval.EvalString(expr)
@@ -31,29 +31,30 @@ func TestShFunctionSuccess(t *testing.T) {
 }
 
 func TestShFunctionFail(t *testing.T) {
-	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil, nil)
+	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil)
 	expr, diags := hclsyntax.ParseExpression([]byte(`sh("exit 1")`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	_, err := eval.EvalString(expr)
 	require.Error(t, err)
 }
 
-func TestTaskFunctionStdoutCapture(t *testing.T) {
-	runner := func(name string, vars *ast.Vars) (string, error) {
-		return "output", nil
-	}
+func TestTaskFunctionReturnsTaskInfo(t *testing.T) {
 	tasks := ast.NewTasks()
 	tasks.Set("build", &ast.Task{})
-	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), runner, tasks)
+	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), tasks)
 	expr, diags := hclsyntax.ParseExpression([]byte(`exec(task.build)`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
-	v, err := eval.EvalString(expr)
+	
+	// Use EvalCommand instead of EvalString since exec() now returns task info
+	cmd, err := eval.EvalCommand(expr)
 	require.NoError(t, err)
-	require.Equal(t, "output", v)
+	require.True(t, cmd.IsTaskCall)
+	require.Equal(t, "build", cmd.TaskName)
+	require.Nil(t, cmd.TaskVars)
 }
 
 func TestInvalidReference(t *testing.T) {
-	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), nil, nil)
+	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), nil)
 	expr, diags := hclsyntax.ParseExpression([]byte(`FOO`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	_, err := eval.EvalString(expr)
@@ -63,7 +64,7 @@ func TestInvalidReference(t *testing.T) {
 func TestInvalidTaskReference(t *testing.T) {
 	tasks := ast.NewTasks()
 	tasks.Set("known", &ast.Task{})
-	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), nil, tasks)
+	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), tasks)
 	expr, diags := hclsyntax.ParseExpression([]byte(`task.unknown`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	_, err := eval.EvalString(expr)

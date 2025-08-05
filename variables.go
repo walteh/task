@@ -114,7 +114,7 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 		envDefs.Merge(e.Taskfile.Env, nil)
 		envDefs.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
 		envDefs.Merge(origTask.Env, nil)
-		resolver := hclext.NewResolver(vars, envDefs, e.callTask, e.Taskfile.Tasks)
+		resolver := hclext.NewResolver(vars, envDefs, e.Taskfile.Tasks)
 		_, resolvedEnv, err := resolver.Resolve()
 		if err != nil {
 			return nil, err
@@ -142,7 +142,7 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 
 	runtimeEnv := env.GetEnviron()
 	runtimeEnv.Merge(new.Env, nil)
-	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask, e.Taskfile.Tasks)
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.Taskfile.Tasks)
 
 	if len(origTask.Sources) > 0 && origTask.Method != "none" {
 		var checker fingerprint.SourcesCheckable
@@ -192,11 +192,18 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 					}
 					newCmd := cmd.DeepCopy()
 					if origTask.IsHCL && cmd.Expr != nil {
-						val, err := hclEval.EvalString(cmd.Expr)
+						evalCmd, err := hclEval.EvalCommand(cmd.Expr)
 						if err != nil {
 							return nil, err
 						}
-						newCmd.Cmd = val
+						
+						if evalCmd.IsTaskCall {
+							newCmd.Task = evalCmd.TaskName
+							newCmd.Vars = evalCmd.TaskVars
+							newCmd.Cmd = ""
+						} else {
+							newCmd.Cmd = evalCmd.CmdString
+						}
 					} else {
 						newCmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
 						newCmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
@@ -214,11 +221,18 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 			}
 			newCmd := cmd.DeepCopy()
 			if origTask.IsHCL && cmd.Expr != nil {
-				val, err := hclEval.EvalString(cmd.Expr)
+				evalCmd, err := hclEval.EvalCommand(cmd.Expr)
 				if err != nil {
 					return nil, err
 				}
-				newCmd.Cmd = val
+				
+				if evalCmd.IsTaskCall {
+					newCmd.Task = evalCmd.TaskName
+					newCmd.Vars = evalCmd.TaskVars
+					newCmd.Cmd = ""
+				} else {
+					newCmd.Cmd = evalCmd.CmdString
+				}
 			} else {
 				newCmd.Cmd = templater.Replace(cmd.Cmd, cache)
 				newCmd.Task = templater.Replace(cmd.Task, cache)

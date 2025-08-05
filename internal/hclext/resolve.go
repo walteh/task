@@ -14,7 +14,6 @@ import (
 type Resolver struct {
 	vars     *ast.Vars
 	env      *ast.Vars
-	runner   TaskRunner
 	tasks    *ast.Tasks
 	varCache map[string]any
 	envCache map[string]any
@@ -23,11 +22,10 @@ type Resolver struct {
 }
 
 // NewResolver creates a new Resolver.
-func NewResolver(vars, env *ast.Vars, runner TaskRunner, tasks *ast.Tasks) *Resolver {
+func NewResolver(vars, env *ast.Vars, tasks *ast.Tasks) *Resolver {
 	r := &Resolver{
 		vars:     vars,
 		env:      env,
-		runner:   runner,
 		tasks:    tasks,
 		varCache: map[string]any{},
 		envCache: map[string]any{},
@@ -117,7 +115,7 @@ func (r *Resolver) resolveVar(name string) (any, error) {
 			return nil, err
 		}
 	}
-	eval := NewHCLEvaluator(varsFromCache(r.varCache), envFromCache(r.envCache), r.runner, r.tasks)
+	eval := NewHCLEvaluator(varsFromCache(r.varCache), envFromCache(r.envCache), r.tasks)
 	val, err := eval.EvalValue(v.Expr)
 	if err != nil {
 		return nil, err
@@ -152,7 +150,7 @@ func (r *Resolver) resolveEnv(name string) (any, error) {
 					return nil, err
 				}
 			}
-			eval := NewHCLEvaluator(varsFromCache(r.varCache), envFromCache(r.envCache), r.runner, r.tasks)
+			eval := NewHCLEvaluator(varsFromCache(r.varCache), envFromCache(r.envCache), r.tasks)
 			val, err := eval.EvalValue(v.Expr)
 			if err != nil {
 				return nil, err

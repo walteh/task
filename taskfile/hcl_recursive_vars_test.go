@@ -25,7 +25,7 @@ func TestRecursiveVars(t *testing.T) {
 	vars.Set("NAME", ast.Var{Expr: parseExpr(t, `"BOB"`)})
 	vars.Set("UPPER_GREETING", ast.Var{Expr: parseExpr(t, `upper(vars.GREETING)`)})
 
-	resolver := hclext.NewResolver(vars, env.GetEnviron(), nil, nil)
+	resolver := hclext.NewResolver(vars, env.GetEnviron(), nil)
 	resolved, _, err := resolver.Resolve()
 	require.NoError(t, err)
 
@@ -41,7 +41,7 @@ func TestOrderIndependence(t *testing.T) {
 	vars.Set("INTERMEDIATE", ast.Var{Expr: parseExpr(t, `"${vars.BASE} + ok"`)})
 	vars.Set("BASE", ast.Var{Expr: parseExpr(t, `"yup"`)})
 
-	resolver := hclext.NewResolver(vars, env.GetEnviron(), nil, nil)
+	resolver := hclext.NewResolver(vars, env.GetEnviron(), nil)
 	resolved, _, err := resolver.Resolve()
 	require.NoError(t, err)
 
@@ -53,7 +53,7 @@ func TestCyclicReference(t *testing.T) {
 	vars := ast.NewVars()
 	vars.Set("LOOP", ast.Var{Expr: parseExpr(t, `"${vars.LOOP}"`)})
 
-	resolver := hclext.NewResolver(vars, env.GetEnviron(), nil, nil)
+	resolver := hclext.NewResolver(vars, env.GetEnviron(), nil)
 	_, _, err := resolver.Resolve()
 	require.Error(t, err)
 }
