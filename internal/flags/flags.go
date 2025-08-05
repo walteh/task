@@ -26,6 +26,9 @@ was specified, or lists all tasks if an unknown task name was specified.
 Example: 'task hello' with the following 'Taskfile.yml' file will generate an
 'output.txt' file with the content "hello".
 
+Taskfiles can be written in YAML or HCL. By default Task looks for
+'Taskfile.yml', 'Taskfile.yaml', 'Taskfile.hcl', or a bare 'Taskfile'.
+
 '''
 version: '3'
 tasks:

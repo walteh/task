@@ -48,11 +48,24 @@ tasks:
     silent: true
 ```
 
-As you can see, all Taskfiles are written in [YAML format][yaml]. The `version`
-attribute specifies the minimum version of Task that can be used to run this
-file. The `vars` attribute is used to define variables that can be used in
-tasks. In this case, we are creating a string variable called `GREETING` with a
-value of `Hello, World!`.
+The example above is written in [YAML format][yaml], but Taskfiles can also be
+written in HCL:
+
+```hcl
+version = "3"
+
+vars = { GREETING = "Hello, World!" }
+
+task "default" {
+  cmds = ["echo ${GREETING}"]
+  silent = true
+}
+```
+
+Both formats are fully supported. The `version` attribute specifies the minimum
+version of Task that can be used to run this file. The `vars` attribute is used
+to define variables that can be used in tasks. In this case, we are creating a
+string variable called `GREETING` with a value of `Hello, World!`.
 
 Finally, the `tasks` attribute is used to define the tasks that can be run. In
 this case, we have a task called `default` that echoes the value of the
@@ -71,9 +84,9 @@ task default
 
 Note that we don't have to specify the name of the Taskfile. Task will
 automatically look for a file called `Taskfile.yml` (or any of Task's [supported
-file names][supported-file-names]) in the current directory. Additionally, tasks
-with the name `default` are special. They can also be run without specifying the
-task name.
+file names][supported-file-names], such as `Taskfile.hcl` or a plain
+`Taskfile`) in the current directory. Additionally, tasks with the name
+`default` are special. They can also be run without specifying the task name.
 
 If you created a Taskfile in a different directory, you can run it by passing
 the absolute or relative path to the directory as an argument using the `--dir`
