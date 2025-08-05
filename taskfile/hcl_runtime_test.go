@@ -22,7 +22,7 @@ func TestBlockSyntaxEnforced(t *testing.T) {
 }
 
 func TestShFunctionSuccess(t *testing.T) {
-	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil)
+	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil, nil)
 	expr, diags := hclsyntax.ParseExpression([]byte(`sh("echo hi")`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	v, err := eval.EvalString(expr)
@@ -31,7 +31,7 @@ func TestShFunctionSuccess(t *testing.T) {
 }
 
 func TestShFunctionFail(t *testing.T) {
-	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil)
+	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), nil, nil)
 	expr, diags := hclsyntax.ParseExpression([]byte(`sh("exit 1")`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	_, err := eval.EvalString(expr)
@@ -42,8 +42,10 @@ func TestTaskFunctionStdoutCapture(t *testing.T) {
 	runner := func(name string, vars *ast.Vars) (string, error) {
 		return "output", nil
 	}
-	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), runner)
-	expr, diags := hclsyntax.ParseExpression([]byte(`task("build")`), "test.hcl", hcl.InitialPos)
+	tasks := ast.NewTasks()
+	tasks.Set("build", &ast.Task{})
+	eval := hclext.NewHCLEvaluator(nil, env.GetEnviron(), runner, tasks)
+	expr, diags := hclsyntax.ParseExpression([]byte(`exec(task.build)`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	v, err := eval.EvalString(expr)
 	require.NoError(t, err)
@@ -51,9 +53,20 @@ func TestTaskFunctionStdoutCapture(t *testing.T) {
 }
 
 func TestInvalidReference(t *testing.T) {
-	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), nil)
+	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), nil, nil)
 	expr, diags := hclsyntax.ParseExpression([]byte(`FOO`), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	_, err := eval.EvalString(expr)
 	require.Error(t, err)
+}
+
+func TestInvalidTaskReference(t *testing.T) {
+	tasks := ast.NewTasks()
+	tasks.Set("known", &ast.Task{})
+	eval := hclext.NewHCLEvaluator(ast.NewVars(), env.GetEnviron(), nil, tasks)
+	expr, diags := hclsyntax.ParseExpression([]byte(`task.unknown`), "test.hcl", hcl.InitialPos)
+	require.False(t, diags.HasErrors())
+	_, err := eval.EvalString(expr)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "test.hcl")
 }

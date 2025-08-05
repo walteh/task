@@ -23,7 +23,7 @@ type HCLEvaluator struct {
 	env     map[string]cty.Value
 }
 
-func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner) *HCLEvaluator {
+func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner, tasks *ast.Tasks) *HCLEvaluator {
 	varVals := map[string]cty.Value{}
 	if vars != nil {
 		for k, v := range vars.All() {
@@ -40,11 +40,23 @@ func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner) *HCLEvaluator {
 			}
 		}
 	}
+	taskVals := map[string]cty.Value{}
+	if tasks != nil {
+		for name := range tasks.Keys(nil) {
+			taskVals[name] = cty.StringVal(name)
+		}
+	}
+
+	varsMap := map[string]cty.Value{
+		"vars": cty.ObjectVal(varVals),
+		"env":  cty.ObjectVal(envVals),
+	}
+	if len(taskVals) > 0 {
+		varsMap["task"] = cty.ObjectVal(taskVals)
+	}
+
 	ctx := &hcl.EvalContext{
-		Variables: map[string]cty.Value{
-			"vars": cty.ObjectVal(varVals),
-			"env":  cty.ObjectVal(envVals),
-		},
+		Variables: varsMap,
 		Functions: builtinFunctions(runner),
 	}
 	return &HCLEvaluator{EvalCtx: ctx, vars: varVals, env: envVals}
@@ -60,7 +72,7 @@ func builtinFunctions(runner TaskRunner) map[string]function.Function {
 	funcs["tuple"] = tupleFunc()
 
 	if runner != nil {
-		funcs["task"] = taskFunc(runner)
+		funcs["exec"] = execFunc(runner)
 	}
 	return funcs
 }
@@ -230,9 +242,9 @@ func shellFunc(shell string) function.Function {
 	})
 }
 
-func taskFunc(runner TaskRunner) function.Function {
+func execFunc(runner TaskRunner) function.Function {
 	return function.New(&function.Spec{
-		Params:   []function.Parameter{{Name: "name", Type: cty.String}},
+		Params:   []function.Parameter{{Name: "task", Type: cty.String}},
 		VarParam: &function.Parameter{Name: "vars", Type: cty.DynamicPseudoType},
 		Type:     function.StaticReturnType(cty.String),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {

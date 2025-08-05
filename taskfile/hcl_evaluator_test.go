@@ -16,7 +16,7 @@ func TestHCLEvaluatorExpressions(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	vars := ast.NewVars()
 	vars.Set("FOO", ast.Var{Value: "bar"})
-	eval := hclext.NewHCLEvaluator(vars, env.GetEnviron(), nil)
+	eval := hclext.NewHCLEvaluator(vars, env.GetEnviron(), nil, nil)
 
 	expr1, diags := hclsyntax.ParseTemplate([]byte("${vars.FOO}"), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
