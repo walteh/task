@@ -38,4 +38,7 @@ func TestHCLE2E(t *testing.T) {
 	if !strings.Contains(output, "EXT=base-ext") {
 		t.Fatalf("missing ext output: %s", output)
 	}
+	if !strings.Contains(output, "PLATFORM=linux") {
+		t.Fatalf("missing platform output: %s", output)
+	}
 }
