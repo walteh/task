@@ -12,6 +12,7 @@ import (
 	"github.com/go-task/task/v3/internal/env"
 	"github.com/go-task/task/v3/internal/execext"
 	"github.com/go-task/task/v3/internal/filepathext"
+	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/internal/logger"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/internal/version"
@@ -46,45 +47,50 @@ func (c *Compiler) FastGetVariables(t *ast.Task, call *Call) (*ast.Vars, error) 
 
 func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*ast.Vars, error) {
 	result := env.GetEnviron()
+	evaluator := hclext.NewHCLEvaluator(result, result, nil)
+	hasHCL := false
 	specialVars, err := c.getSpecialVars(t, call)
 	if err != nil {
 		return nil, err
 	}
 	for k, v := range specialVars {
 		result.Set(k, ast.Var{Value: v})
+		evaluator.SetVar(k, v)
 	}
 
 	getRangeFunc := func(dir string) func(k string, v ast.Var) error {
 		return func(k string, v ast.Var) error {
+			if v.Expr != nil || v.ShExpr != nil {
+				result.Set(k, v)
+				hasHCL = true
+				return nil
+			}
 			cache := &templater.Cache{Vars: result}
-			// Replace values
 			newVar := templater.ReplaceVar(v, cache)
-			// If the variable should not be evaluated, but is nil, set it to an empty string
-			// This stops empty interface errors when using the templater to replace values later
 			if !evaluateShVars && newVar.Value == nil {
 				result.Set(k, ast.Var{Value: ""})
+				evaluator.SetVar(k, "")
 				return nil
 			}
-			// If the variable should not be evaluated and it is set, we can set it and return
 			if !evaluateShVars {
 				result.Set(k, ast.Var{Value: newVar.Value})
+				evaluator.SetVar(k, fmt.Sprint(newVar.Value))
 				return nil
 			}
-			// Now we can check for errors since we've handled all the cases when we don't want to evaluate
 			if err := cache.Err(); err != nil {
 				return err
 			}
-			// If the variable is already set, we can set it and return
 			if newVar.Value != nil || newVar.Sh == nil {
 				result.Set(k, ast.Var{Value: newVar.Value})
+				evaluator.SetVar(k, fmt.Sprint(newVar.Value))
 				return nil
 			}
-			// If the variable is dynamic, we need to resolve it first
 			static, err := c.HandleDynamicVar(newVar, dir, env.GetFromVars(result))
 			if err != nil {
 				return err
 			}
 			result.Set(k, ast.Var{Value: static})
+			evaluator.SetVar(k, static)
 			return nil
 		}
 	}
@@ -126,19 +132,27 @@ func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*
 		}
 	}
 
-	if t == nil || call == nil {
-		return result, nil
+	if t != nil && call != nil {
+		for k, v := range call.Vars.All() {
+			if err := rangeFunc(k, v); err != nil {
+				return nil, err
+			}
+		}
+		for k, v := range t.Vars.All() {
+			if err := taskRangeFunc(k, v); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	for k, v := range call.Vars.All() {
-		if err := rangeFunc(k, v); err != nil {
+	if hasHCL {
+		resVars, resEnv, err := hclext.NewResolver(result, result, nil).Resolve()
+		if err != nil {
 			return nil, err
 		}
-	}
-	for k, v := range t.Vars.All() {
-		if err := taskRangeFunc(k, v); err != nil {
-			return nil, err
-		}
+		result = ast.NewVars()
+		result.Merge(resEnv, nil)
+		result.Merge(resVars, nil)
 	}
 
 	return result, nil

@@ -27,10 +27,16 @@ Task looks for files with the following names, in order of priority:
 - `taskfile.dist.yml`
 - `Taskfile.dist.yaml`
 - `taskfile.dist.yaml`
+- `Taskfile.hcl`
+- `taskfile.hcl`
+- `Taskfile`
+- `taskfile`
 
 The `.dist` variants allow projects to have one committed file (`.dist`) while
 still allowing individual users to override the Taskfile by adding an additional
-`Taskfile.yml` (which would be in your `.gitignore`).
+`Taskfile.yml` (which would be in your `.gitignore`). YAML files are checked
+before HCL or extensionless files. If both YAML and HCL Taskfiles are present,
+the YAML file will be used.
 
 ### Running a Taskfile from a subdirectory
 
@@ -65,7 +71,8 @@ will be brought up.
 
 If you call Task with the `--global` (alias `-g`) flag, it will look for your
 home directory instead of your working directory. In short, Task will look for a
-Taskfile that matches `$HOME/{T,t}askfile.{yml,yaml}` .
+Taskfile that matches `$HOME/{T,t}askfile.{yml,yaml,hcl}` or
+`$HOME/{T,t}askfile`.
 
 This is useful to have automation that you can run from anywhere in your system!
 
@@ -97,14 +104,19 @@ tasks:
 ### Reading a Taskfile from stdin
 
 Taskfile also supports reading from stdin. This is useful if you are generating
-Taskfiles dynamically and don't want write them to disk. To tell task to read
+Taskfiles dynamically and don't want write them to disk. To tell Task to read
 from stdin, you must specify the `-t/--taskfile` flag with the special `-`
-value. You may then pipe into Task as you would any other program:
+value. You may then pipe into Task as you would any other program. Both YAML and
+HCL content are supported and Task will attempt to detect the format
+automatically:
 
 ```shell
 task -t - <(cat ./Taskfile.yml)
 # OR
 cat ./Taskfile.yml | task -t -
+
+# HCL content works too
+cat ./Taskfile.hcl | task -t -
 ```
 
 ## Environment variables

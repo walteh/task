@@ -14,6 +14,7 @@ import (
 	"github.com/go-task/task/v3/internal/execext"
 	"github.com/go-task/task/v3/internal/filepathext"
 	"github.com/go-task/task/v3/internal/fingerprint"
+	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
@@ -108,9 +109,22 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 	}
 
 	new.Env = ast.NewVars()
-	new.Env.Merge(templater.ReplaceVars(e.Taskfile.Env, cache), nil)
-	new.Env.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
-	new.Env.Merge(templater.ReplaceVars(origTask.Env, cache), nil)
+	if origTask.IsHCL {
+		envDefs := env.GetEnviron()
+		envDefs.Merge(e.Taskfile.Env, nil)
+		envDefs.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
+		envDefs.Merge(origTask.Env, nil)
+		resolver := hclext.NewResolver(vars, envDefs, e.Taskfile.Tasks)
+		_, resolvedEnv, err := resolver.Resolve()
+		if err != nil {
+			return nil, err
+		}
+		new.Env = resolvedEnv
+	} else {
+		new.Env.Merge(templater.ReplaceVars(e.Taskfile.Env, cache), nil)
+		new.Env.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
+		new.Env.Merge(templater.ReplaceVars(origTask.Env, cache), nil)
+	}
 	if evaluateShVars {
 		for k, v := range new.Env.All() {
 			// If the variable is not dynamic, we can set it and return
@@ -125,6 +139,10 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 			new.Env.Set(k, ast.Var{Value: static})
 		}
 	}
+
+	runtimeEnv := env.GetEnviron()
+	runtimeEnv.Merge(new.Env, nil)
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.Taskfile.Tasks)
 
 	if len(origTask.Sources) > 0 && origTask.Method != "none" {
 		var checker fingerprint.SourcesCheckable
@@ -173,9 +191,24 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 						extra["KEY"] = keys[i]
 					}
 					newCmd := cmd.DeepCopy()
-					newCmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
-					newCmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
-					newCmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+					if origTask.IsHCL && cmd.Expr != nil {
+						evalCmd, err := hclEval.EvalCommand(cmd.Expr)
+						if err != nil {
+							return nil, err
+						}
+						
+						if evalCmd.IsTaskCall {
+							newCmd.Task = evalCmd.TaskName
+							newCmd.Vars = evalCmd.TaskVars
+							newCmd.Cmd = ""
+						} else {
+							newCmd.Cmd = evalCmd.CmdString
+						}
+					} else {
+						newCmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
+						newCmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
+						newCmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+					}
 					new.Cmds = append(new.Cmds, newCmd)
 				}
 				continue
@@ -187,9 +220,24 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 				continue
 			}
 			newCmd := cmd.DeepCopy()
-			newCmd.Cmd = templater.Replace(cmd.Cmd, cache)
-			newCmd.Task = templater.Replace(cmd.Task, cache)
-			newCmd.Vars = templater.ReplaceVars(cmd.Vars, cache)
+			if origTask.IsHCL && cmd.Expr != nil {
+				evalCmd, err := hclEval.EvalCommand(cmd.Expr)
+				if err != nil {
+					return nil, err
+				}
+				
+				if evalCmd.IsTaskCall {
+					newCmd.Task = evalCmd.TaskName
+					newCmd.Vars = evalCmd.TaskVars
+					newCmd.Cmd = ""
+				} else {
+					newCmd.Cmd = evalCmd.CmdString
+				}
+			} else {
+				newCmd.Cmd = templater.Replace(cmd.Cmd, cache)
+				newCmd.Task = templater.Replace(cmd.Task, cache)
+				newCmd.Vars = templater.ReplaceVars(cmd.Vars, cache)
+			}
 			new.Cmds = append(new.Cmds, newCmd)
 		}
 	}
@@ -204,31 +252,50 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 				if err != nil {
 					return nil, err
 				}
-				// Name the iterator variable
 				var as string
 				if dep.For.As != "" {
 					as = dep.For.As
 				} else {
 					as = "ITEM"
 				}
-				// Create a new command for each item in the list
 				for i, loopValue := range list {
-					extra := map[string]any{
-						as: loopValue,
-					}
+					extra := map[string]any{as: loopValue}
 					if len(keys) > 0 {
 						extra["KEY"] = keys[i]
 					}
 					newDep := dep.DeepCopy()
-					newDep.Task = templater.ReplaceWithExtra(dep.Task, cache, extra)
-					newDep.Vars = templater.ReplaceVarsWithExtra(dep.Vars, cache, extra)
+					if origTask.IsHCL {
+						newDep.Task = dep.Task
+						newDep.Vars = dep.Vars
+					} else {
+						newDep.Task = templater.ReplaceWithExtra(dep.Task, cache, extra)
+						newDep.Vars = templater.ReplaceVarsWithExtra(dep.Vars, cache, extra)
+					}
 					new.Deps = append(new.Deps, newDep)
 				}
 				continue
 			}
 			newDep := dep.DeepCopy()
-			newDep.Task = templater.Replace(dep.Task, cache)
-			newDep.Vars = templater.ReplaceVars(dep.Vars, cache)
+			if origTask.IsHCL {
+				newDep.Task = dep.Task
+				if dep.Vars != nil {
+					newDep.Vars = ast.NewVars()
+					for k, v := range dep.Vars.All() {
+						if v.Expr != nil {
+							val, err := hclEval.EvalString(v.Expr)
+							if err != nil {
+								return nil, err
+							}
+							newDep.Vars.Set(k, ast.Var{Value: val})
+						} else {
+							newDep.Vars.Set(k, v)
+						}
+					}
+				}
+			} else {
+				newDep.Task = templater.Replace(dep.Task, cache)
+				newDep.Vars = templater.ReplaceVars(dep.Vars, cache)
+			}
 			new.Deps = append(new.Deps, newDep)
 		}
 	}

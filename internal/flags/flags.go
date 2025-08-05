@@ -26,6 +26,9 @@ was specified, or lists all tasks if an unknown task name was specified.
 Example: 'task hello' with the following 'Taskfile.yml' file will generate an
 'output.txt' file with the content "hello".
 
+Taskfiles can be written in YAML or HCL. By default Task looks for
+'Taskfile.yml', 'Taskfile.yaml', 'Taskfile.hcl', or a bare 'Taskfile'.
+
 '''
 version: '3'
 tasks:
@@ -128,7 +131,7 @@ func init() {
 	pflag.BoolVar(&Summary, "summary", false, "Show summary about a task.")
 	pflag.BoolVarP(&ExitCode, "exit-code", "x", false, "Pass-through the exit code of the task command.")
 	pflag.StringVarP(&Dir, "dir", "d", "", "Sets the directory in which Task will execute and look for a Taskfile.")
-	pflag.StringVarP(&Entrypoint, "taskfile", "t", "", `Choose which Taskfile to run. Defaults to "Taskfile.yml".`)
+	pflag.StringVarP(&Entrypoint, "taskfile", "t", "", `Choose which Taskfile to run. Defaults to "Taskfile.yml". Also searches for "Taskfile.yaml", "Taskfile.hcl", and "Taskfile".`)
 	pflag.StringVarP(&Output.Name, "output", "o", "", "Sets output style: [interleaved|group|prefixed].")
 	pflag.StringVar(&Output.Group.Begin, "output-group-begin", "", "Message template to print before a task's grouped output.")
 	pflag.StringVar(&Output.Group.End, "output-group-end", "", "Message template to print after a task's grouped output.")
@@ -136,7 +139,7 @@ func init() {
 	pflag.BoolVarP(&Color, "color", "c", true, "Colored output. Enabled by default. Set flag to false or use NO_COLOR=1 to disable.")
 	pflag.IntVarP(&Concurrency, "concurrency", "C", 0, "Limit number of tasks to run concurrently.")
 	pflag.DurationVarP(&Interval, "interval", "I", 0, "Interval to watch for changes.")
-	pflag.BoolVarP(&Global, "global", "g", false, "Runs global Taskfile, from $HOME/{T,t}askfile.{yml,yaml}.")
+	pflag.BoolVarP(&Global, "global", "g", false, "Runs global Taskfile, from $HOME/{T,t}askfile.{yml,yaml,hcl} or $HOME/{T,t}askfile.")
 	pflag.BoolVar(&Experiments, "experiments", false, "Lists all the available experiments and whether or not they are enabled.")
 
 	// Gentle force experiment will override the force flag and add a new force-all flag

@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dominikbraun/graph"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 
 	"github.com/go-task/task/v3/errors"
 	"github.com/go-task/task/v3/internal/env"
-	"github.com/go-task/task/v3/internal/filepathext"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
@@ -40,6 +40,7 @@ type (
 	// [ast.TaskfileGraph] from them.
 	Reader struct {
 		graph               *ast.TaskfileGraph
+		loaders             map[string]Loader
 		insecure            bool
 		download            bool
 		offline             bool
@@ -55,7 +56,13 @@ type (
 // options.
 func NewReader(opts ...ReaderOption) *Reader {
 	r := &Reader{
-		graph:               ast.NewTaskfileGraph(),
+		graph: ast.NewTaskfileGraph(),
+		loaders: map[string]Loader{
+			".yml":  YAMLLoader{},
+			".yaml": YAMLLoader{},
+			".hcl":  HCLLoader{},
+			"":      HCLLoader{},
+		},
 		insecure:            false,
 		download:            false,
 		offline:             false,
@@ -117,6 +124,24 @@ type offlineOption struct {
 
 func (o *offlineOption) ApplyToReader(r *Reader) {
 	r.offline = o.offline
+}
+
+// WithLoader registers a new [Loader] for the given file extension. If a loader
+// already exists for the extension, it will be replaced.
+func WithLoader(ext string, loader Loader) ReaderOption {
+	return &loaderOption{ext: strings.ToLower(ext), loader: loader}
+}
+
+type loaderOption struct {
+	ext    string
+	loader Loader
+}
+
+func (o *loaderOption) ApplyToReader(r *Reader) {
+	if r.loaders == nil {
+		r.loaders = map[string]Loader{}
+	}
+	r.loaders[o.ext] = o.loader
 }
 
 // WithTempDir sets the temporary directory that will be used by the [Reader].
@@ -207,25 +232,24 @@ func (r *Reader) promptf(format string, a ...any) error {
 }
 
 func (r *Reader) include(ctx context.Context, node Node) error {
-	// Create a new vertex for the Taskfile
-	vertex := &ast.TaskfileVertex{
-		URI:      node.Location(),
-		Taskfile: nil,
-	}
-
-	// Add the included Taskfile to the DAG
-	// If the vertex already exists, we return early since its Taskfile has
-	// already been read and its children explored
-	if err := r.graph.AddVertex(vertex); err == graph.ErrVertexAlreadyExists {
-		return nil
-	} else if err != nil {
+	// Read and parse the Taskfile from the file
+	tf, err := r.readNode(ctx, node)
+	if err != nil {
 		return err
 	}
 
-	// Read and parse the Taskfile from the file and add it to the vertex
-	var err error
-	vertex.Taskfile, err = r.readNode(ctx, node)
-	if err != nil {
+	// Create a new vertex for the Taskfile using the resolved location
+	vertex := &ast.TaskfileVertex{
+		URI:      node.Location(),
+		Taskfile: tf,
+	}
+
+	// Add the included Taskfile to the DAG. If the vertex already exists, we
+	// return early since its Taskfile has already been read and its children
+	// explored
+	if err := r.graph.AddVertex(vertex); err == graph.ErrVertexAlreadyExists {
+		return nil
+	} else if err != nil {
 		return err
 	}
 
@@ -324,19 +348,24 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 		return nil, err
 	}
 
-	var tf ast.Taskfile
-	if err := yaml.Unmarshal(b, &tf); err != nil {
-		// Decode the taskfile and add the file info the any errors
-		taskfileDecodeErr := &errors.TaskfileDecodeError{}
-		if errors.As(err, &taskfileDecodeErr) {
-			snippet := NewSnippet(b,
-				WithLine(taskfileDecodeErr.Line),
-				WithColumn(taskfileDecodeErr.Column),
-				WithPadding(2),
-			)
-			return nil, taskfileDecodeErr.WithFileInfo(node.Location(), snippet.String())
+	ext := strings.ToLower(filepath.Ext(node.Location()))
+	loader, ok := r.loaders[ext]
+	if !ok {
+		// Fallback to YAML loader if no loader is registered for the extension
+		loader = YAMLLoader{}
+	}
+
+	tf, err := loader.Load(b, node.Location())
+	if err != nil && ext == "" {
+		if _, isHCL := loader.(HCLLoader); isHCL {
+			if tf2, err2 := (YAMLLoader{}).Load(b, node.Location()); err2 == nil {
+				tf = tf2
+				err = nil
+			}
 		}
-		return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(node.Location()), Err: err}
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	// Check that the Taskfile is set and has a schema version
@@ -344,20 +373,33 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 		return nil, &errors.TaskfileVersionCheckError{URI: node.Location()}
 	}
 
+	if tf == nil {
+		return nil, &errors.TaskfileInvalidError{URI: node.Location(), Err: fmt.Errorf("empty taskfile")}
+	}
 	// Set the taskfile/task's locations
 	tf.Location = node.Location()
-	for task := range tf.Tasks.Values(nil) {
-		// If the task is not defined, create a new one
-		if task == nil {
-			task = &ast.Task{}
-		}
-		// Set the location of the taskfile for each task
-		if task.Location.Taskfile == "" {
-			task.Location.Taskfile = tf.Location
+	if tf.Tasks != nil {
+		for task := range tf.Tasks.Values(nil) {
+			// If the task is not defined, create a new one
+			if task == nil {
+				task = &ast.Task{}
+			}
+
+			// TODO: i am not sure if this is the correct behavior, but it prevents an error for now
+			if task.Location == nil {
+				task.Location = &ast.Location{
+					Taskfile: tf.Location,
+				}
+			}
+
+			// Set the location of the taskfile for each task
+			if task.Location.Taskfile == "" {
+				task.Location.Taskfile = tf.Location
+			}
 		}
 	}
 
-	return &tf, nil
+	return tf, nil
 }
 
 func (r *Reader) readNodeContent(ctx context.Context, node Node) ([]byte, error) {

@@ -15,6 +15,7 @@ import (
 	"github.com/go-task/task/v3/internal/env"
 	"github.com/go-task/task/v3/internal/execext"
 	"github.com/go-task/task/v3/internal/fingerprint"
+	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/internal/logger"
 	"github.com/go-task/task/v3/internal/output"
 	"github.com/go-task/task/v3/internal/slicesext"
@@ -259,23 +260,15 @@ func (e *Executor) mkdir(t *ast.Task) error {
 }
 
 func (e *Executor) runDeps(ctx context.Context, t *ast.Task) error {
-	g, ctx := errgroup.WithContext(ctx)
-
 	reacquire := e.releaseConcurrencyLimit()
 	defer reacquire()
 
 	for _, d := range t.Deps {
-		d := d
-		g.Go(func() error {
-			err := e.RunTask(ctx, &Call{Task: d.Task, Vars: d.Vars, Silent: d.Silent, Indirect: true})
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+		if err := e.RunTask(ctx, &Call{Task: d.Task, Vars: d.Vars, Silent: d.Silent, Indirect: true}); err != nil {
+			return err
+		}
 	}
-
-	return g.Wait()
+	return nil
 }
 
 func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode *uint8) {
@@ -290,15 +283,32 @@ func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode 
 	cmd := t.Cmds[i]
 	vars, _ := e.Compiler.GetVariables(origTask, call)
 	cache := &templater.Cache{Vars: vars}
+	runtimeEnv := env.GetEnviron()
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.Taskfile.Tasks)
 	extra := map[string]any{}
 
 	if deferredExitCode != nil && *deferredExitCode > 0 {
 		extra["EXIT_CODE"] = fmt.Sprintf("%d", *deferredExitCode)
 	}
 
-	cmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
-	cmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
-	cmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+	if origTask.IsHCL && cmd.Expr != nil {
+		evalCmd, err := hclEval.EvalCommand(cmd.Expr)
+		if err != nil {
+			return
+		}
+		
+		if evalCmd.IsTaskCall {
+			cmd.Task = evalCmd.TaskName
+			cmd.Vars = evalCmd.TaskVars
+			cmd.Cmd = ""
+		} else {
+			cmd.Cmd = evalCmd.CmdString
+		}
+	} else {
+		cmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
+		cmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
+		cmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+	}
 
 	if err := e.runCommand(ctx, t, call, i); err != nil {
 		e.Logger.VerboseErrf(logger.Yellow, "task: ignored error in deferred cmd: %s\n", err.Error())
@@ -538,3 +548,4 @@ func shouldRunOnCurrentPlatform(platforms []*ast.Platform) bool {
 	}
 	return false
 }
+

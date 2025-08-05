@@ -4,7 +4,7 @@ typeset -A opt_args
 
 _GO_TASK_COMPLETION_LIST_OPTION="${GO_TASK_COMPLETION_LIST_OPTION:---list-all}"
 
-# Listing commands from Taskfile.yml
+# Listing commands from Taskfile
 function __task_list() {
     local -a scripts cmd
     local -i enabled=0
@@ -19,7 +19,7 @@ function __task_list() {
         enabled=1
         cmd+=(--taskfile "$taskfile")
     else
-        for taskfile in {T,t}askfile{,.dist}.{yaml,yml}; do
+        for taskfile in Taskfile.yml taskfile.yml Taskfile.yaml taskfile.yaml Taskfile.dist.yml taskfile.dist.yml Taskfile.dist.yaml taskfile.dist.yaml Taskfile.hcl taskfile.hcl Taskfile taskfile; do
             if [[ -f "$taskfile" ]]; then
                 enabled=1
                 break
