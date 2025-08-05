@@ -356,6 +356,14 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 	}
 
 	tf, err := loader.Load(b, node.Location())
+	if err != nil && ext == "" {
+		if _, isHCL := loader.(HCLLoader); isHCL {
+			if tf2, err2 := (YAMLLoader{}).Load(b, node.Location()); err2 == nil {
+				tf = tf2
+				err = nil
+			}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -33,7 +32,7 @@ func TestDiscoveryPrefersYAMLOverHCL(t *testing.T) {
 
 func TestHCLLoaderInvoked(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Taskfile.hcl", "version = 3\n")
+	writeFile(t, dir, "Taskfile.hcl", "version = \"3\"\n")
 
 	node, err := NewFileNode("", dir)
 	if err != nil {
@@ -41,14 +40,14 @@ func TestHCLLoaderInvoked(t *testing.T) {
 	}
 	r := NewReader()
 	_, err = r.Read(context.Background(), node)
-	if err == nil || !strings.Contains(err.Error(), "HCL parsing not implemented") {
-		t.Fatalf("expected HCL parsing not implemented error, got %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestExtensionlessTaskfile(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Taskfile", "version = 3\n")
+	writeFile(t, dir, "Taskfile", "version = \"3\"\n")
 
 	node, err := NewFileNode("", dir)
 	if err != nil {
@@ -56,7 +55,7 @@ func TestExtensionlessTaskfile(t *testing.T) {
 	}
 	r := NewReader()
 	_, err = r.Read(context.Background(), node)
-	if err == nil || !strings.Contains(err.Error(), "HCL parsing not implemented") {
-		t.Fatalf("expected HCL parsing not implemented error, got %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
