@@ -260,3 +260,246 @@ task "integration" {
 		assert.Equal(t, "echo 'Integration test'", integrationTask.Cmds[0].Cmd)
 	})
 }
+
+func TestHCLComprehensiveFeatures(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Complex HCL with all task attributes", func(t *testing.T) {
+		hclContent := `version = "3"
+output = "prefixed"
+method = "timestamp"
+silent = true
+set = ["pipefail"]
+shopt = ["expand_aliases"]
+dotenv = [".env"]
+
+task "complex" {
+  desc = "Complex task with all attributes"
+  label = "Complex Task"
+  summary = "A comprehensive test task"
+  dir = "./subdir"
+  method = "checksum"
+  prefix = "[TASK]"
+  run = "once"
+  silent = true
+  interactive = false
+  internal = true
+  ignore_error = false
+  watch = true
+  
+  aliases = ["comp", "c"]
+  sources = ["src/**/*.go"]
+  generates = ["bin/app"]
+  status = ["test -f bin/app"]
+  set = ["errexit"]
+  shopt = ["nullglob"]
+  dotenv = [".env.local"]
+  platforms = ["linux", "darwin"]
+  
+  cmds = [
+    "echo 'Building application'",
+    "go build -o bin/app",
+    "echo 'Build complete'"
+  ]
+  
+  deps = ["prepare", "test"]
+}`
+
+		node := &mockNode{
+			location: "/path/to/complex.hcl",
+			content:  []byte(hclContent),
+		}
+
+		loader := NewHCLLoader()
+		taskfile, err := loader.LoadTaskfile(context.Background(), node, []byte(hclContent))
+
+		require.NoError(t, err)
+		require.NotNil(t, taskfile)
+
+		// Verify global attributes
+		assert.Equal(t, "3.0.0", taskfile.Version.String())
+		assert.Equal(t, "prefixed", taskfile.Output.Name)
+		assert.Equal(t, "timestamp", taskfile.Method)
+		assert.True(t, taskfile.Silent)
+		assert.Equal(t, []string{"pipefail"}, taskfile.Set)
+		assert.Equal(t, []string{"expand_aliases"}, taskfile.Shopt)
+		assert.Equal(t, []string{".env"}, taskfile.Dotenv)
+
+		// Verify task attributes
+		complexTask, exists := taskfile.Tasks.Get("complex")
+		require.True(t, exists)
+		assert.Equal(t, "complex", complexTask.Task)
+		assert.Equal(t, "Complex task with all attributes", complexTask.Desc)
+		assert.Equal(t, "Complex Task", complexTask.Label)
+		assert.Equal(t, "A comprehensive test task", complexTask.Summary)
+		assert.Equal(t, "./subdir", complexTask.Dir)
+		assert.Equal(t, "checksum", complexTask.Method)
+		assert.Equal(t, "[TASK]", complexTask.Prefix)
+		assert.Equal(t, "once", complexTask.Run)
+		assert.True(t, complexTask.Silent)
+		assert.False(t, complexTask.Interactive)
+		assert.True(t, complexTask.Internal)
+		assert.False(t, complexTask.IgnoreError)
+		assert.True(t, complexTask.Watch)
+
+		// Verify string slice attributes
+		assert.Equal(t, []string{"comp", "c"}, complexTask.Aliases)
+		assert.Equal(t, []string{"errexit"}, complexTask.Set)
+		assert.Equal(t, []string{"nullglob"}, complexTask.Shopt)
+		assert.Equal(t, []string{".env.local"}, complexTask.Dotenv)
+		assert.Equal(t, []string{"test -f bin/app"}, complexTask.Status)
+
+		// Verify glob attributes
+		require.Len(t, complexTask.Sources, 1)
+		assert.Equal(t, "src/**/*.go", complexTask.Sources[0].Glob)
+		require.Len(t, complexTask.Generates, 1)
+		assert.Equal(t, "bin/app", complexTask.Generates[0].Glob)
+
+		// Verify platform attributes
+		require.Len(t, complexTask.Platforms, 2)
+		assert.Equal(t, "linux", complexTask.Platforms[0].OS)
+		assert.Equal(t, "darwin", complexTask.Platforms[1].OS)
+
+		// Verify commands
+		require.Len(t, complexTask.Cmds, 3)
+		assert.Equal(t, "echo 'Building application'", complexTask.Cmds[0].Cmd)
+		assert.Equal(t, "go build -o bin/app", complexTask.Cmds[1].Cmd)
+		assert.Equal(t, "echo 'Build complete'", complexTask.Cmds[2].Cmd)
+
+		// Verify dependencies
+		require.Len(t, complexTask.Deps, 2)
+		assert.Equal(t, "prepare", complexTask.Deps[0].Task)
+		assert.Equal(t, "test", complexTask.Deps[1].Task)
+	})
+
+	t.Run("HCL with single command and dependency", func(t *testing.T) {
+		hclContent := `version = "3"
+
+task "single" {
+  desc = "Task with single command and dependency"
+  cmds = "echo 'Single command'"
+  deps = "prepare"
+}`
+
+		node := &mockNode{
+			location: "/path/to/single.hcl",
+			content:  []byte(hclContent),
+		}
+
+		loader := NewHCLLoader()
+		taskfile, err := loader.LoadTaskfile(context.Background(), node, []byte(hclContent))
+
+		require.NoError(t, err)
+		require.NotNil(t, taskfile)
+
+		singleTask, exists := taskfile.Tasks.Get("single")
+		require.True(t, exists)
+		assert.Equal(t, "Task with single command and dependency", singleTask.Desc)
+
+		// Verify single command
+		require.Len(t, singleTask.Cmds, 1)
+		assert.Equal(t, "echo 'Single command'", singleTask.Cmds[0].Cmd)
+
+		// Verify single dependency
+		require.Len(t, singleTask.Deps, 1)
+		assert.Equal(t, "prepare", singleTask.Deps[0].Task)
+	})
+
+	t.Run("HCL with interpolated commands (expression capture)", func(t *testing.T) {
+		hclContent := `version = "3"
+
+task "interpolated" {
+  desc = "Task with interpolated commands"
+  cmds = [
+    "echo 'Hello ${USER}'",
+    "echo 'Building for ${ARCH}'",
+    "go build -o bin/app-${VERSION}"
+  ]
+}`
+
+		node := &mockNode{
+			location: "/path/to/interpolated.hcl",
+			content:  []byte(hclContent),
+		}
+
+		loader := NewHCLLoader()
+		taskfile, err := loader.LoadTaskfile(context.Background(), node, []byte(hclContent))
+
+		require.NoError(t, err)
+		require.NotNil(t, taskfile)
+
+		interpolatedTask, exists := taskfile.Tasks.Get("interpolated")
+		require.True(t, exists)
+		assert.Equal(t, "Task with interpolated commands", interpolatedTask.Desc)
+
+		// Verify that commands with ${} interpolation are captured
+		require.Len(t, interpolatedTask.Cmds, 3)
+		assert.Equal(t, "echo 'Hello ${USER}'", interpolatedTask.Cmds[0].Cmd)
+		assert.Equal(t, "echo 'Building for ${ARCH}'", interpolatedTask.Cmds[1].Cmd)
+		assert.Equal(t, "go build -o bin/app-${VERSION}", interpolatedTask.Cmds[2].Cmd)
+	})
+
+	t.Run("HCL with multiple tasks", func(t *testing.T) {
+		hclContent := `version = "3"
+
+task "prepare" {
+  desc = "Prepare for build"
+  cmds = ["mkdir -p bin", "go mod download"]
+}
+
+task "build" {
+  desc = "Build the application"
+  deps = ["prepare"]
+  cmds = ["go build -o bin/app"]
+}
+
+task "test" {
+  desc = "Run tests"
+  cmds = ["go test ./..."]
+}
+
+task "all" {
+  desc = "Run all tasks"
+  deps = ["build", "test"]
+}`
+
+		node := &mockNode{
+			location: "/path/to/multi.hcl",
+			content:  []byte(hclContent),
+		}
+
+		loader := NewHCLLoader()
+		taskfile, err := loader.LoadTaskfile(context.Background(), node, []byte(hclContent))
+
+		require.NoError(t, err)
+		require.NotNil(t, taskfile)
+
+		// Verify all tasks exist
+		prepareTask, exists := taskfile.Tasks.Get("prepare")
+		require.True(t, exists)
+		assert.Equal(t, "Prepare for build", prepareTask.Desc)
+		assert.Len(t, prepareTask.Cmds, 2)
+		assert.Len(t, prepareTask.Deps, 0)
+
+		buildTask, exists := taskfile.Tasks.Get("build")
+		require.True(t, exists)
+		assert.Equal(t, "Build the application", buildTask.Desc)
+		assert.Len(t, buildTask.Cmds, 1)
+		assert.Len(t, buildTask.Deps, 1)
+		assert.Equal(t, "prepare", buildTask.Deps[0].Task)
+
+		testTask, exists := taskfile.Tasks.Get("test")
+		require.True(t, exists)
+		assert.Equal(t, "Run tests", testTask.Desc)
+		assert.Len(t, testTask.Cmds, 1)
+		assert.Len(t, testTask.Deps, 0)
+
+		allTask, exists := taskfile.Tasks.Get("all")
+		require.True(t, exists)
+		assert.Equal(t, "Run all tasks", allTask.Desc)
+		assert.Len(t, allTask.Cmds, 0)
+		assert.Len(t, allTask.Deps, 2)
+		assert.Equal(t, "build", allTask.Deps[0].Task)
+		assert.Equal(t, "test", allTask.Deps[1].Task)
+	})
+}
