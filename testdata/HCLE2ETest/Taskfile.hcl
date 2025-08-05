@@ -5,6 +5,13 @@ vars {
   NAME = "BOB"
   GREETING = "Hello, ${vars.NAME}!"
   UPPER_GREETING = upper(vars.GREETING)
+  SUPPORTED_PLATFORMS = [
+    "linux", "darwin", "windows",
+  ]
+  DOCKER_OPTIONS = {
+    cache = true
+    platform = vars.SUPPORTED_PLATFORMS[0]
+  }
 }
 
 env {
@@ -31,6 +38,7 @@ task "all" {
     "echo FINAL ${vars.ORIGINAL}",
     "echo PATH=${env.PATH_COPY}",
     "echo GREET=${vars.UPPER_GREETING}",
-    "echo EXT=${env.EXTENDED}"
+    "echo EXT=${env.EXTENDED}",
+    "echo PLATFORM=${vars.SUPPORTED_PLATFORMS[0]}"
   ]
 }

@@ -15,8 +15,8 @@ type Resolver struct {
 	vars     *ast.Vars
 	env      *ast.Vars
 	runner   TaskRunner
-	varCache map[string]string
-	envCache map[string]string
+	varCache map[string]any
+	envCache map[string]any
 	varStack map[string]bool
 	envStack map[string]bool
 }
@@ -27,8 +27,8 @@ func NewResolver(vars, env *ast.Vars, runner TaskRunner) *Resolver {
 		vars:     vars,
 		env:      env,
 		runner:   runner,
-		varCache: map[string]string{},
-		envCache: map[string]string{},
+		varCache: map[string]any{},
+		envCache: map[string]any{},
 		varStack: map[string]bool{},
 		envStack: map[string]bool{},
 	}
@@ -36,7 +36,7 @@ func NewResolver(vars, env *ast.Vars, runner TaskRunner) *Resolver {
 		for k, v := range vars.All() {
 			if v.Expr == nil {
 				if v.Value != nil {
-					r.varCache[k] = fmt.Sprint(v.Value)
+					r.varCache[k] = v.Value
 				}
 			}
 		}
@@ -45,7 +45,7 @@ func NewResolver(vars, env *ast.Vars, runner TaskRunner) *Resolver {
 		for k, v := range env.All() {
 			if v.Expr == nil {
 				if v.Value != nil {
-					r.envCache[k] = fmt.Sprint(v.Value)
+					r.envCache[k] = v.Value
 				}
 			}
 		}
@@ -84,78 +84,76 @@ func (r *Resolver) Resolve() (*ast.Vars, *ast.Vars, error) {
 	return vars, env, nil
 }
 
-func (r *Resolver) resolveVar(name string) (string, error) {
+func (r *Resolver) resolveVar(name string) (any, error) {
 	if v, ok := r.varCache[name]; ok {
 		return v, nil
 	}
 	if r.varStack[name] {
-		return "", fmt.Errorf("cyclic variable reference for %s", name)
+		return nil, fmt.Errorf("cyclic variable reference for %s", name)
 	}
 	if r.vars == nil {
-		return "", fmt.Errorf("undefined variable %s", name)
+		return nil, fmt.Errorf("undefined variable %s", name)
 	}
 	v, ok := r.vars.Get(name)
 	if !ok {
-		return "", fmt.Errorf("undefined variable %s", name)
+		return nil, fmt.Errorf("undefined variable %s", name)
 	}
 	if v.Expr == nil {
-		val := fmt.Sprint(v.Value)
-		r.varCache[name] = val
-		return val, nil
+		r.varCache[name] = v.Value
+		return v.Value, nil
 	}
 	r.varStack[name] = true
 	defer delete(r.varStack, name)
 	depsVars, depsEnv := findDeps(v.Expr)
 	for dv := range depsVars {
 		if _, err := r.resolveVar(dv); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	for de := range depsEnv {
 		if _, err := r.resolveEnv(de); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	eval := NewHCLEvaluator(varsFromCache(r.varCache), envFromCache(r.envCache), r.runner)
-	val, err := eval.EvalString(v.Expr)
+	val, err := eval.EvalValue(v.Expr)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	r.varCache[name] = val
 	return val, nil
 }
 
-func (r *Resolver) resolveEnv(name string) (string, error) {
+func (r *Resolver) resolveEnv(name string) (any, error) {
 	if v, ok := r.envCache[name]; ok {
 		return v, nil
 	}
 	if r.envStack[name] {
-		return "", fmt.Errorf("cyclic env reference for %s", name)
+		return nil, fmt.Errorf("cyclic env reference for %s", name)
 	}
 	if r.env != nil {
 		if v, ok := r.env.Get(name); ok {
 			if v.Expr == nil {
-				val := fmt.Sprint(v.Value)
-				r.envCache[name] = val
-				return val, nil
+				r.envCache[name] = v.Value
+				return v.Value, nil
 			}
 			r.envStack[name] = true
 			defer delete(r.envStack, name)
 			depsVars, depsEnv := findDeps(v.Expr)
 			for dv := range depsVars {
 				if _, err := r.resolveVar(dv); err != nil {
-					return "", err
+					return nil, err
 				}
 			}
 			for de := range depsEnv {
 				if _, err := r.resolveEnv(de); err != nil {
-					return "", err
+					return nil, err
 				}
 			}
 			eval := NewHCLEvaluator(varsFromCache(r.varCache), envFromCache(r.envCache), r.runner)
-			val, err := eval.EvalString(v.Expr)
+			val, err := eval.EvalValue(v.Expr)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			r.envCache[name] = val
 			return val, nil
@@ -166,7 +164,7 @@ func (r *Resolver) resolveEnv(name string) (string, error) {
 	return "", nil
 }
 
-func varsFromCache(m map[string]string) *ast.Vars {
+func varsFromCache(m map[string]any) *ast.Vars {
 	vs := ast.NewVars()
 	for k, v := range m {
 		vs.Set(k, ast.Var{Value: v})
@@ -174,7 +172,7 @@ func varsFromCache(m map[string]string) *ast.Vars {
 	return vs
 }
 
-func envFromCache(m map[string]string) *ast.Vars {
+func envFromCache(m map[string]any) *ast.Vars {
 	vs := ast.NewVars()
 	for k, v := range m {
 		vs.Set(k, ast.Var{Value: v})

@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 
+	"github.com/go-task/task/v3/internal/filepathext"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
 
@@ -26,7 +28,7 @@ func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner) *HCLEvaluator {
 	if vars != nil {
 		for k, v := range vars.All() {
 			if v.Value != nil {
-				varVals[k] = cty.StringVal(fmt.Sprint(v.Value))
+				varVals[k] = toCty(v.Value)
 			}
 		}
 	}
@@ -34,7 +36,7 @@ func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner) *HCLEvaluator {
 	if env != nil {
 		for k, v := range env.All() {
 			if v.Value != nil {
-				envVals[k] = cty.StringVal(fmt.Sprint(v.Value))
+				envVals[k] = toCty(v.Value)
 			}
 		}
 	}
@@ -58,6 +60,7 @@ func builtinFunctions(runner TaskRunner) map[string]function.Function {
 		"sh":    shellFunc("/bin/sh"),
 		"bash":  shellFunc("/bin/bash"),
 		"zsh":   shellFunc("/bin/zsh"),
+		"tuple": tupleFunc(),
 	}
 	if runner != nil {
 		funcs["task"] = taskFunc(runner)
@@ -123,6 +126,98 @@ func envFunc() function.Function {
 	})
 }
 
+func tupleFunc() function.Function {
+	return function.New(&function.Spec{
+		VarParam: &function.Parameter{Name: "vals", Type: cty.DynamicPseudoType},
+		Type: func(args []cty.Value) (cty.Type, error) {
+			types := make([]cty.Type, len(args))
+			for i, v := range args {
+				types[i] = v.Type()
+			}
+			return cty.Tuple(types), nil
+		},
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			return cty.TupleVal(args), nil
+		},
+	})
+}
+
+func toCty(v any) cty.Value {
+	switch val := v.(type) {
+	case string:
+		return cty.StringVal(val)
+	case bool:
+		return cty.BoolVal(val)
+	case int:
+		return cty.NumberIntVal(int64(val))
+	case int64:
+		return cty.NumberIntVal(val)
+	case float32:
+		return cty.NumberFloatVal(float64(val))
+	case float64:
+		return cty.NumberFloatVal(val)
+	case []any:
+		vals := make([]cty.Value, len(val))
+		for i, e := range val {
+			vals[i] = toCty(e)
+		}
+		return cty.TupleVal(vals)
+	case map[string]any:
+		attrs := make(map[string]cty.Value)
+		for k, e := range val {
+			attrs[k] = toCty(e)
+		}
+		return cty.ObjectVal(attrs)
+	default:
+		return cty.StringVal(fmt.Sprint(v))
+	}
+}
+
+func fromCty(val cty.Value, expr hcl.Expression) (any, error) {
+	switch {
+	case val.Type() == cty.String:
+		return val.AsString(), nil
+	case val.Type() == cty.Number:
+		bf := val.AsBigFloat()
+		if i, acc := bf.Int64(); acc == 1 {
+			return i, nil
+		}
+		f, _ := bf.Float64()
+		return f, nil
+	case val.Type() == cty.Bool:
+		return val.True(), nil
+	case val.Type().IsObjectType():
+		attrs := make(map[string]any)
+		for k := range val.Type().AttributeTypes() {
+			v := val.GetAttr(k)
+			res, err := fromCty(v, expr)
+			if err != nil {
+				return nil, err
+			}
+			attrs[k] = res
+		}
+		return attrs, nil
+	case val.Type().IsTupleType():
+		if _, ok := expr.(*hclsyntax.TupleConsExpr); ok {
+			vals := val.AsValueSlice()
+			res := make([]any, len(vals))
+			for i, v := range vals {
+				r, err := fromCty(v, expr)
+				if err != nil {
+					return nil, err
+				}
+				res[i] = r
+			}
+			return res, nil
+		}
+		rng := expr.Range()
+		return nil, fmt.Errorf("unsupported value type tuple for %s:%d,%d-%d,%d", filepathext.TryAbsToRel(rng.Filename), rng.Start.Line, rng.Start.Column, rng.End.Line, rng.End.Column)
+	default:
+		rng := expr.Range()
+		return nil, fmt.Errorf("unsupported value type %s for %s:%d,%d-%d,%d", val.Type().FriendlyName(), filepathext.TryAbsToRel(rng.Filename), rng.Start.Line, rng.Start.Column, rng.End.Line, rng.End.Column)
+	}
+}
+
 func shellFunc(shell string) function.Function {
 	return function.New(&function.Spec{
 		Params: []function.Parameter{{Name: "cmd", Type: cty.String}},
@@ -186,23 +281,35 @@ func (e *HCLEvaluator) SetVar(name, value string) {
 	e.EvalCtx.Variables["vars"] = cty.ObjectVal(e.vars)
 }
 
-func (e *HCLEvaluator) EvalString(expr hcl.Expression) (string, error) {
+func (e *HCLEvaluator) EvalValue(expr hcl.Expression) (any, error) {
 	val, diags := expr.Value(e.EvalCtx)
 	if diags.HasErrors() {
-		return "", diags
+		return nil, diags
 	}
-	switch {
-	case val.Type() == cty.String:
-		return val.AsString(), nil
-	case val.Type() == cty.Number:
-		bf := val.AsBigFloat()
-		return bf.Text('f', -1), nil
-	case val.Type() == cty.Bool:
-		if val.True() {
+	return fromCty(val, expr)
+}
+
+func (e *HCLEvaluator) EvalString(expr hcl.Expression) (string, error) {
+	v, err := e.EvalValue(expr)
+	if err != nil {
+		return "", err
+	}
+	switch val := v.(type) {
+	case string:
+		return val, nil
+	case int:
+		return fmt.Sprintf("%d", val), nil
+	case int64:
+		return fmt.Sprintf("%d", val), nil
+	case float64:
+		return fmt.Sprintf("%v", val), nil
+	case bool:
+		if val {
 			return "true", nil
 		}
 		return "false", nil
 	default:
-		return "", fmt.Errorf("unsupported value type %s", val.Type().FriendlyName())
+		rng := expr.Range()
+		return "", fmt.Errorf("unsupported value type %T for %s:%d,%d-%d,%d", v, filepathext.TryAbsToRel(rng.Filename), rng.Start.Line, rng.Start.Column, rng.End.Line, rng.End.Column)
 	}
 }
