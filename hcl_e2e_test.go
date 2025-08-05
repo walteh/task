@@ -25,6 +25,9 @@ func TestHCLE2E(t *testing.T) {
 	if !strings.Contains(output, "LINT MODE fast") {
 		t.Fatalf("missing lint output: %s", output)
 	}
+	if !strings.Contains(output, "SCOPED 123 456 123456") {
+		t.Fatalf("missing scoped vars output: %s", output)
+	}
 	if !strings.Contains(output, "FINAL foo") {
 		t.Fatalf("missing final output: %s", output)
 	}

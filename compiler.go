@@ -132,6 +132,18 @@ func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*
 		}
 	}
 
+	if hasHCL {
+		resVars, resEnv, err := hclext.NewResolver(result, result, nil).Resolve()
+		if err != nil {
+			return nil, err
+		}
+		result = ast.NewVars()
+		result.Merge(resEnv, nil)
+		result.Merge(resVars, nil)
+		evaluator = hclext.NewHCLEvaluator(result, result, nil)
+		hasHCL = false
+	}
+
 	if t != nil && call != nil {
 		for k, v := range call.Vars.All() {
 			if err := rangeFunc(k, v); err != nil {
@@ -143,16 +155,16 @@ func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*
 				return nil, err
 			}
 		}
-	}
 
-	if hasHCL {
-		resVars, resEnv, err := hclext.NewResolver(result, result, nil).Resolve()
-		if err != nil {
-			return nil, err
+		if hasHCL {
+			resVars, resEnv, err := hclext.NewResolver(result, result, nil).Resolve()
+			if err != nil {
+				return nil, err
+			}
+			result = ast.NewVars()
+			result.Merge(resEnv, nil)
+			result.Merge(resVars, nil)
 		}
-		result = ast.NewVars()
-		result.Merge(resEnv, nil)
-		result.Merge(resVars, nil)
 	}
 
 	return result, nil

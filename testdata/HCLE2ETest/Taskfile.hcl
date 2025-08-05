@@ -12,6 +12,7 @@ vars {
     cache = true
     platform = vars.SUPPORTED_PLATFORMS[0]
   }
+  ABC = 123
 }
 
 env {
@@ -29,10 +30,19 @@ task "lint" {
   cmds = ["echo LINT MODE ${vars.MODE}", "echo TWO-DONE"]
 }
 
+task "scoped" {
+  vars {
+    DEF = 456
+    GHI = "${vars.ABC}${vars.DEF}"
+  }
+  cmds = ["echo SCOPED ${vars.ABC} ${vars.DEF} ${vars.GHI}"]
+}
+
 task "all" {
   deps = [
     task("build"),
-    task("lint", {MODE = "fast"})
+    task("lint", {MODE = "fast"}),
+    task("scoped"),
   ]
   cmds = [
     "echo FINAL ${vars.ORIGINAL}",
