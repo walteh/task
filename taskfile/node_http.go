@@ -17,7 +17,8 @@ import (
 // An HTTPNode is a node that reads a Taskfile from a remote location via HTTP.
 type HTTPNode struct {
 	*baseNode
-	url *url.URL // stores url pointing actual remote file. (e.g. with Taskfile.yml)
+	url      *url.URL // original URL provided by the user
+	resolved *url.URL // resolved URL pointing to the actual remote file
 }
 
 func NewHTTPNode(
@@ -41,6 +42,9 @@ func NewHTTPNode(
 }
 
 func (node *HTTPNode) Location() string {
+	if node.resolved != nil {
+		return node.resolved.Redacted()
+	}
 	return node.url.Redacted()
 }
 
@@ -53,6 +57,7 @@ func (node *HTTPNode) ReadContext(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	node.resolved = url
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
 		return nil, errors.TaskfileFetchFailedError{URI: node.Location()}
@@ -111,7 +116,7 @@ func (node *HTTPNode) ResolveDir(dir string) (string, error) {
 }
 
 func (node *HTTPNode) CacheKey() string {
-	checksum := strings.TrimRight(checksum([]byte(node.Location())), "=")
+	checksum := strings.TrimRight(checksum([]byte(node.url.Redacted())), "=")
 	dir, filename := filepath.Split(node.url.Path)
 	lastDir := filepath.Base(dir)
 	prefix := filename
