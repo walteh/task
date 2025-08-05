@@ -20,7 +20,7 @@ func (err TaskfileNotFoundError) Error() string {
 	if err.Walk {
 		walkText = " (or any of the parent directories)"
 	}
-	return fmt.Sprintf(`task: No Taskfile found at %q%s`, err.URI, walkText)
+	return fmt.Sprintf(`task: No Taskfile found at %q%s. Supported formats: .yml, .yaml, .hcl, or extensionless`, err.URI, walkText)
 }
 
 func (err TaskfileNotFoundError) Code() int {

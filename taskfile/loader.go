@@ -25,6 +25,7 @@ type LoaderRegistry struct {
 func NewLoaderRegistry() *LoaderRegistry {
 	registry := &LoaderRegistry{}
 	registry.RegisterLoader(NewYAMLLoader())
+	registry.RegisterLoader(NewHCLLoader())
 	return registry
 }
 
@@ -33,20 +34,44 @@ func (r *LoaderRegistry) RegisterLoader(loader TaskfileLoader) {
 	r.loaders = append(r.loaders, loader)
 }
 
-// GetLoader returns the appropriate loader for the given file extension
+// GetLoader returns the appropriate loader for the given file extension or filename
 func (r *LoaderRegistry) GetLoader(filename string) TaskfileLoader {
 	ext := strings.ToLower(filepath.Ext(filename))
-	for _, loader := range r.loaders {
-		if loader.SupportsExtension(ext) {
-			return loader
+	
+	// For files with specific extensions, find the appropriate loader
+	if ext != "" {
+		for _, loader := range r.loaders {
+			if loader.SupportsExtension(ext) {
+				return loader
+			}
 		}
 	}
-	// Default to YAML loader if no specific loader found
+	
+	// For extensionless files, determine format based on content or default to trying YAML first
+	// Since the search order already prioritizes YAML files, extensionless files will
+	// first try YAML parsing and fall back to HCL if YAML fails
 	return NewYAMLLoader()
 }
 
 // LoadTaskfile loads a taskfile using the appropriate loader based on file extension
 func (r *LoaderRegistry) LoadTaskfile(ctx context.Context, node Node, content []byte) (*ast.Taskfile, error) {
-	loader := r.GetLoader(node.Location())
-	return loader.LoadTaskfile(ctx, node, content)
+	ext := strings.ToLower(filepath.Ext(node.Location()))
+	
+	// For files with specific extensions, use the appropriate loader
+	if ext != "" {
+		loader := r.GetLoader(node.Location())
+		return loader.LoadTaskfile(ctx, node, content)
+	}
+	
+	// For extensionless files, try loaders in priority order
+	// Try YAML first for backward compatibility
+	yamlLoader := NewYAMLLoader()
+	taskfile, err := yamlLoader.LoadTaskfile(ctx, node, content)
+	if err == nil {
+		return taskfile, nil
+	}
+	
+	// If YAML fails, try HCL
+	hclLoader := NewHCLLoader()
+	return hclLoader.LoadTaskfile(ctx, node, content)
 }

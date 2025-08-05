@@ -105,7 +105,7 @@ func TestLoaderRegistry(t *testing.T) {
 	t.Run("NewLoaderRegistry", func(t *testing.T) {
 		registry := NewLoaderRegistry()
 		assert.NotNil(t, registry)
-		assert.Len(t, registry.loaders, 1) // Should have YAML loader by default
+		assert.Len(t, registry.loaders, 2) // Should have YAML and HCL loaders by default
 	})
 
 	t.Run("RegisterLoader", func(t *testing.T) {
@@ -138,12 +138,18 @@ func TestLoaderRegistry(t *testing.T) {
 	t.Run("GetLoader_UnsupportedExtension", func(t *testing.T) {
 		registry := NewLoaderRegistry()
 
-		// Should default to YAML loader for unsupported extensions
+		// Should use appropriate loader for supported extensions
 		loader := registry.GetLoader("Taskfile.hcl")
+		assert.NotNil(t, loader)
+		assert.Equal(t, "HCL", loader.FormatName())
+
+		// Should default to YAML loader for extensionless files (backward compatibility)
+		loader = registry.GetLoader("Taskfile")
 		assert.NotNil(t, loader)
 		assert.Equal(t, "YAML", loader.FormatName())
 
-		loader = registry.GetLoader("Taskfile")
+		// Should default to YAML loader for truly unsupported extensions
+		loader = registry.GetLoader("Taskfile.json")
 		assert.NotNil(t, loader)
 		assert.Equal(t, "YAML", loader.FormatName())
 	})

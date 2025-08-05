@@ -13,6 +13,7 @@ import (
 
 var (
 	defaultTaskfiles = []string{
+		// YAML files first (existing projects priority)
 		"Taskfile.yml",
 		"taskfile.yml",
 		"Taskfile.yaml",
@@ -21,6 +22,14 @@ var (
 		"taskfile.dist.yml",
 		"Taskfile.dist.yaml",
 		"taskfile.dist.yaml",
+		// HCL files second
+		"Taskfile.hcl",
+		"taskfile.hcl",
+		"Taskfile.dist.hcl",
+		"taskfile.dist.hcl",
+		// Extensionless files last
+		"Taskfile",
+		"taskfile",
 	}
 	allowedContentTypes = []string{
 		"text/plain",
