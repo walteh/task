@@ -110,34 +110,16 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 
 	new.Env = ast.NewVars()
 	if origTask.IsHCL {
-		evalTemp := hclext.NewHCLEvaluator(vars, env.GetEnviron(), e.callTask)
-		evaluated := ast.NewVars()
-		for k, v := range e.Taskfile.Env.All() {
-			if v.Expr != nil {
-				val, err := evalTemp.EvalString(v.Expr)
-				if err != nil {
-					return nil, err
-				}
-				evaluated.Set(k, ast.Var{Value: val})
-			} else {
-				evaluated.Set(k, v)
-			}
+		envDefs := env.GetEnviron()
+		envDefs.Merge(e.Taskfile.Env, nil)
+		envDefs.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
+		envDefs.Merge(origTask.Env, nil)
+		resolver := hclext.NewResolver(vars, envDefs, e.callTask)
+		_, resolvedEnv, err := resolver.Resolve()
+		if err != nil {
+			return nil, err
 		}
-		new.Env.Merge(evaluated, nil)
-		new.Env.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
-		evaluated = ast.NewVars()
-		for k, v := range origTask.Env.All() {
-			if v.Expr != nil {
-				val, err := evalTemp.EvalString(v.Expr)
-				if err != nil {
-					return nil, err
-				}
-				evaluated.Set(k, ast.Var{Value: val})
-			} else {
-				evaluated.Set(k, v)
-			}
-		}
-		new.Env.Merge(evaluated, nil)
+		new.Env = resolvedEnv
 	} else {
 		new.Env.Merge(templater.ReplaceVars(e.Taskfile.Env, cache), nil)
 		new.Env.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)

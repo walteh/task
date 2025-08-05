@@ -2,9 +2,14 @@ version = "3"
 
 vars {
   ORIGINAL = "foo"
+  NAME = "BOB"
+  GREETING = "Hello, ${vars.NAME}!"
+  UPPER_GREETING = upper(vars.GREETING)
 }
 
 env {
+  EXTENDED = "${env.BASE}-ext"
+  BASE = "base"
   PATH_COPY = env("PATH")
 }
 
@@ -24,6 +29,8 @@ task "all" {
   ]
   cmds = [
     "echo FINAL ${vars.ORIGINAL}",
-    "echo PATH=${env.PATH_COPY}"
+    "echo PATH=${env.PATH_COPY}",
+    "echo GREET=${vars.UPPER_GREETING}",
+    "echo EXT=${env.EXTENDED}"
   ]
 }

@@ -32,4 +32,10 @@ func TestHCLE2E(t *testing.T) {
 	if idx == -1 || idx+5 >= len(output) || output[idx+5] == '\n' {
 		t.Fatalf("missing path output: %s", output)
 	}
+	if !strings.Contains(output, "GREET=HELLO, BOB!") {
+		t.Fatalf("missing greet output: %s", output)
+	}
+	if !strings.Contains(output, "EXT=base-ext") {
+		t.Fatalf("missing ext output: %s", output)
+	}
 }
