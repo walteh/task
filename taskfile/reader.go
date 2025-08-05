@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dominikbraun/graph"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 
 	"github.com/go-task/task/v3/errors"
 	"github.com/go-task/task/v3/internal/env"
-	"github.com/go-task/task/v3/internal/filepathext"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
@@ -40,6 +40,7 @@ type (
 	// [ast.TaskfileGraph] from them.
 	Reader struct {
 		graph               *ast.TaskfileGraph
+		loaders             map[string]Loader
 		insecure            bool
 		download            bool
 		offline             bool
@@ -55,7 +56,11 @@ type (
 // options.
 func NewReader(opts ...ReaderOption) *Reader {
 	r := &Reader{
-		graph:               ast.NewTaskfileGraph(),
+		graph: ast.NewTaskfileGraph(),
+		loaders: map[string]Loader{
+			".yml":  YAMLLoader{},
+			".yaml": YAMLLoader{},
+		},
 		insecure:            false,
 		download:            false,
 		offline:             false,
@@ -117,6 +122,24 @@ type offlineOption struct {
 
 func (o *offlineOption) ApplyToReader(r *Reader) {
 	r.offline = o.offline
+}
+
+// WithLoader registers a new [Loader] for the given file extension. If a loader
+// already exists for the extension, it will be replaced.
+func WithLoader(ext string, loader Loader) ReaderOption {
+	return &loaderOption{ext: strings.ToLower(ext), loader: loader}
+}
+
+type loaderOption struct {
+	ext    string
+	loader Loader
+}
+
+func (o *loaderOption) ApplyToReader(r *Reader) {
+	if r.loaders == nil {
+		r.loaders = map[string]Loader{}
+	}
+	r.loaders[o.ext] = o.loader
 }
 
 // WithTempDir sets the temporary directory that will be used by the [Reader].
@@ -324,19 +347,16 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 		return nil, err
 	}
 
-	var tf ast.Taskfile
-	if err := yaml.Unmarshal(b, &tf); err != nil {
-		// Decode the taskfile and add the file info the any errors
-		taskfileDecodeErr := &errors.TaskfileDecodeError{}
-		if errors.As(err, &taskfileDecodeErr) {
-			snippet := NewSnippet(b,
-				WithLine(taskfileDecodeErr.Line),
-				WithColumn(taskfileDecodeErr.Column),
-				WithPadding(2),
-			)
-			return nil, taskfileDecodeErr.WithFileInfo(node.Location(), snippet.String())
-		}
-		return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(node.Location()), Err: err}
+	ext := strings.ToLower(filepath.Ext(node.Location()))
+	loader, ok := r.loaders[ext]
+	if !ok {
+		// Fallback to YAML loader if no loader is registered for the extension
+		loader = YAMLLoader{}
+	}
+
+	tf, err := loader.Load(b, node.Location())
+	if err != nil {
+		return nil, err
 	}
 
 	// Check that the Taskfile is set and has a schema version
@@ -357,7 +377,7 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 		}
 	}
 
-	return &tf, nil
+	return tf, nil
 }
 
 func (r *Reader) readNodeContent(ctx context.Context, node Node) ([]byte, error) {
