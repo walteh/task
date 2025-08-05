@@ -14,6 +14,7 @@ import (
 	"github.com/go-task/task/v3/internal/execext"
 	"github.com/go-task/task/v3/internal/filepathext"
 	"github.com/go-task/task/v3/internal/fingerprint"
+	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
@@ -46,6 +47,7 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 	}
 
 	cache := &templater.Cache{Vars: vars}
+	hclEval := hclext.NewHCLEvaluator(vars)
 
 	new := ast.Task{
 		Task:                 origTask.Task,
@@ -173,9 +175,17 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 						extra["KEY"] = keys[i]
 					}
 					newCmd := cmd.DeepCopy()
-					newCmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
-					newCmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
-					newCmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+					if origTask.IsHCL && cmd.Expr != nil {
+						val, err := hclEval.EvalString(cmd.Expr)
+						if err != nil {
+							return nil, err
+						}
+						newCmd.Cmd = val
+					} else {
+						newCmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
+						newCmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
+						newCmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+					}
 					new.Cmds = append(new.Cmds, newCmd)
 				}
 				continue
@@ -187,9 +197,17 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 				continue
 			}
 			newCmd := cmd.DeepCopy()
-			newCmd.Cmd = templater.Replace(cmd.Cmd, cache)
-			newCmd.Task = templater.Replace(cmd.Task, cache)
-			newCmd.Vars = templater.ReplaceVars(cmd.Vars, cache)
+			if origTask.IsHCL && cmd.Expr != nil {
+				val, err := hclEval.EvalString(cmd.Expr)
+				if err != nil {
+					return nil, err
+				}
+				newCmd.Cmd = val
+			} else {
+				newCmd.Cmd = templater.Replace(cmd.Cmd, cache)
+				newCmd.Task = templater.Replace(cmd.Task, cache)
+				newCmd.Vars = templater.ReplaceVars(cmd.Vars, cache)
+			}
 			new.Cmds = append(new.Cmds, newCmd)
 		}
 	}

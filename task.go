@@ -15,6 +15,7 @@ import (
 	"github.com/go-task/task/v3/internal/env"
 	"github.com/go-task/task/v3/internal/execext"
 	"github.com/go-task/task/v3/internal/fingerprint"
+	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/internal/logger"
 	"github.com/go-task/task/v3/internal/output"
 	"github.com/go-task/task/v3/internal/slicesext"
@@ -290,15 +291,24 @@ func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode 
 	cmd := t.Cmds[i]
 	vars, _ := e.Compiler.GetVariables(origTask, call)
 	cache := &templater.Cache{Vars: vars}
+	hclEval := hclext.NewHCLEvaluator(vars)
 	extra := map[string]any{}
 
 	if deferredExitCode != nil && *deferredExitCode > 0 {
 		extra["EXIT_CODE"] = fmt.Sprintf("%d", *deferredExitCode)
 	}
 
-	cmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
-	cmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
-	cmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+	if origTask.IsHCL && cmd.Expr != nil {
+		val, err := hclEval.EvalString(cmd.Expr)
+		if err != nil {
+			return
+		}
+		cmd.Cmd = val
+	} else {
+		cmd.Cmd = templater.ReplaceWithExtra(cmd.Cmd, cache, extra)
+		cmd.Task = templater.ReplaceWithExtra(cmd.Task, cache, extra)
+		cmd.Vars = templater.ReplaceVarsWithExtra(cmd.Vars, cache, extra)
+	}
 
 	if err := e.runCommand(ctx, t, call, i); err != nil {
 		e.Logger.VerboseErrf(logger.Yellow, "task: ignored error in deferred cmd: %s\n", err.Error())

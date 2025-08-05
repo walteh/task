@@ -373,16 +373,21 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 		return nil, &errors.TaskfileVersionCheckError{URI: node.Location()}
 	}
 
+	if tf == nil {
+		return nil, &errors.TaskfileInvalidError{URI: node.Location(), Err: fmt.Errorf("empty taskfile")}
+	}
 	// Set the taskfile/task's locations
 	tf.Location = node.Location()
-	for task := range tf.Tasks.Values(nil) {
-		// If the task is not defined, create a new one
-		if task == nil {
-			task = &ast.Task{}
-		}
-		// Set the location of the taskfile for each task
-		if task.Location.Taskfile == "" {
-			task.Location.Taskfile = tf.Location
+	if tf.Tasks != nil {
+		for task := range tf.Tasks.Values(nil) {
+			// If the task is not defined, create a new one
+			if task == nil {
+				task = &ast.Task{}
+			}
+			// Set the location of the taskfile for each task
+			if task.Location.Taskfile == "" {
+				task.Location.Taskfile = tf.Location
+			}
 		}
 	}
 
