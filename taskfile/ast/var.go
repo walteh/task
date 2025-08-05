@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"github.com/hashicorp/hcl/v2"
 	"gopkg.in/yaml.v3"
 
 	"github.com/go-task/task/v3/errors"
@@ -8,11 +9,13 @@ import (
 
 // Var represents either a static or dynamic variable.
 type Var struct {
-	Value any
-	Live  any
-	Sh    *string
-	Ref   string
-	Dir   string
+	Value  any
+	Live   any
+	Sh     *string
+	Ref    string
+	Dir    string
+	Expr   hcl.Expression
+	ShExpr hcl.Expression
 }
 
 func (v *Var) UnmarshalYAML(node *yaml.Node) error {
