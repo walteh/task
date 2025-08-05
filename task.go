@@ -260,23 +260,15 @@ func (e *Executor) mkdir(t *ast.Task) error {
 }
 
 func (e *Executor) runDeps(ctx context.Context, t *ast.Task) error {
-	g, ctx := errgroup.WithContext(ctx)
-
 	reacquire := e.releaseConcurrencyLimit()
 	defer reacquire()
 
 	for _, d := range t.Deps {
-		d := d
-		g.Go(func() error {
-			err := e.RunTask(ctx, &Call{Task: d.Task, Vars: d.Vars, Silent: d.Silent, Indirect: true})
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+		if err := e.RunTask(ctx, &Call{Task: d.Task, Vars: d.Vars, Silent: d.Silent, Indirect: true}); err != nil {
+			return err
+		}
 	}
-
-	return g.Wait()
+	return nil
 }
 
 func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode *uint8) {
@@ -291,7 +283,8 @@ func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode 
 	cmd := t.Cmds[i]
 	vars, _ := e.Compiler.GetVariables(origTask, call)
 	cache := &templater.Cache{Vars: vars}
-	hclEval := hclext.NewHCLEvaluator(vars)
+	runtimeEnv := env.GetEnviron()
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask)
 	extra := map[string]any{}
 
 	if deferredExitCode != nil && *deferredExitCode > 0 {

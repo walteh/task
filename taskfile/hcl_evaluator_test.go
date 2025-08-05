@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/stretchr/testify/require"
 
+	"github.com/go-task/task/v3/internal/env"
 	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
@@ -15,15 +16,15 @@ func TestHCLEvaluatorExpressions(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	vars := ast.NewVars()
 	vars.Set("FOO", ast.Var{Value: "bar"})
-	eval := hclext.NewHCLEvaluator(vars)
+	eval := hclext.NewHCLEvaluator(vars, env.GetEnviron(), nil)
 
-	expr1, diags := hclsyntax.ParseTemplate([]byte("${FOO}"), "test.hcl", hcl.InitialPos)
+	expr1, diags := hclsyntax.ParseTemplate([]byte("${vars.FOO}"), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	v, err := eval.EvalString(expr1)
 	require.NoError(t, err)
 	require.Equal(t, "bar", v)
 
-	expr2, diags := hclsyntax.ParseTemplate([]byte("${upper(FOO)}"), "test.hcl", hcl.InitialPos)
+	expr2, diags := hclsyntax.ParseTemplate([]byte("${upper(vars.FOO)}"), "test.hcl", hcl.InitialPos)
 	require.False(t, diags.HasErrors())
 	v, err = eval.EvalString(expr2)
 	require.NoError(t, err)
