@@ -162,8 +162,13 @@ func TestHCLLoaderRegistration(t *testing.T) {
 		assert.Equal(t, "YAML", loader.FormatName())
 	})
 
-	t.Run("HCL loader returns not implemented error", func(t *testing.T) {
-		hclContent := `version = "3"`
+	t.Run("HCL loader successfully parses HCL", func(t *testing.T) {
+		hclContent := `version = "3"
+
+task "test" {
+  desc = "Test task"
+  cmds = ["echo test"]
+}`
 
 		node := &mockNode{
 			location: "/path/to/Taskfile.hcl",
@@ -173,10 +178,13 @@ func TestHCLLoaderRegistration(t *testing.T) {
 		loader := registry.GetLoader("Taskfile.hcl")
 		taskfile, err := loader.LoadTaskfile(context.Background(), node, []byte(hclContent))
 
-		assert.Error(t, err)
-		assert.Nil(t, taskfile)
-		assert.Contains(t, err.Error(), "HCL parsing is not yet implemented")
-		assert.Contains(t, err.Error(), "/path/to/Taskfile.hcl")
+		assert.NoError(t, err)
+		assert.NotNil(t, taskfile)
+		assert.Equal(t, "3.0.0", taskfile.Version.String())
+		
+		testTask, exists := taskfile.Tasks.Get("test")
+		assert.True(t, exists)
+		assert.Equal(t, "Test task", testTask.Desc)
 	})
 }
 
@@ -232,17 +240,29 @@ tasks:
 	})
 
 	t.Run("Extensionless HCL file falls back to HCL loader", func(t *testing.T) {
-		hclContent := `version = "3"`
+		hclContent := `version = "3"
+
+task "test" {
+  cmds = ["echo hello"]
+}`
 
 		node := &mockNode{
 			location: "/path/to/Taskfile",
 			content:  []byte(hclContent),
 		}
 
-		// Should try YAML first (fail), then try HCL (get not implemented error)
+		// Should try YAML first (fail), then try HCL (succeed)
 		taskfile, err := registry.LoadTaskfile(context.Background(), node, []byte(hclContent))
-		assert.Error(t, err)
-		assert.Nil(t, taskfile)
-		assert.Contains(t, err.Error(), "HCL parsing is not yet implemented")
+		require.NoError(t, err)
+		require.NotNil(t, taskfile)
+		
+		assert.Equal(t, "/path/to/Taskfile", taskfile.Location)
+		assert.Equal(t, "3.0.0", taskfile.Version.String())
+		
+		testTask, exists := taskfile.Tasks.Get("test")
+		require.True(t, exists)
+		assert.Equal(t, "test", testTask.Task)
+		assert.Len(t, testTask.Cmds, 1)
+		assert.Equal(t, "echo hello", testTask.Cmds[0].Cmd)
 	})
 }
