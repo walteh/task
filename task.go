@@ -284,7 +284,7 @@ func (e *Executor) runDeferred(t *ast.Task, call *Call, i int, deferredExitCode 
 	vars, _ := e.Compiler.GetVariables(origTask, call)
 	cache := &templater.Cache{Vars: vars}
 	runtimeEnv := env.GetEnviron()
-	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask)
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask, e.Taskfile.Tasks)
 	extra := map[string]any{}
 
 	if deferredExitCode != nil && *deferredExitCode > 0 {

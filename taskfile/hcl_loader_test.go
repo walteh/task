@@ -70,3 +70,28 @@ func TestHCLLoaderRejectsGoTemplates(t *testing.T) {
 	_, err := loader.Load(data, "Taskfile.hcl")
 	require.Error(t, err)
 }
+
+func TestTaskReferences(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`version = "3"
+        task "a" {
+            cmds = ["echo A"]
+        }
+        task "b" {
+            deps = [ task.a ]
+            cmds = [ exec(task.a) ]
+        }
+    `)
+
+	loader := HCLLoader{}
+	tf, err := loader.Load(data, "Taskfile.hcl")
+	require.NoError(t, err)
+
+	b, ok := tf.Tasks.Get("b")
+	require.True(t, ok)
+	require.Len(t, b.Deps, 1)
+	require.Equal(t, "a", b.Deps[0].Task)
+	require.Len(t, b.Cmds, 1)
+	require.NotNil(t, b.Cmds[0].Expr)
+}

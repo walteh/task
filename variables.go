@@ -114,7 +114,7 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 		envDefs.Merge(e.Taskfile.Env, nil)
 		envDefs.Merge(templater.ReplaceVars(dotenvEnvs, cache), nil)
 		envDefs.Merge(origTask.Env, nil)
-		resolver := hclext.NewResolver(vars, envDefs, e.callTask)
+		resolver := hclext.NewResolver(vars, envDefs, e.callTask, e.Taskfile.Tasks)
 		_, resolvedEnv, err := resolver.Resolve()
 		if err != nil {
 			return nil, err
@@ -142,7 +142,7 @@ func (e *Executor) compiledTask(call *Call, evaluateShVars bool) (*ast.Task, err
 
 	runtimeEnv := env.GetEnviron()
 	runtimeEnv.Merge(new.Env, nil)
-	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask)
+	hclEval := hclext.NewHCLEvaluator(vars, runtimeEnv, e.callTask, e.Taskfile.Tasks)
 
 	if len(origTask.Sources) > 0 && origTask.Method != "none" {
 		var checker fingerprint.SourcesCheckable

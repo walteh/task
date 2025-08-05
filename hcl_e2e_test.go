@@ -41,4 +41,17 @@ func TestHCLE2E(t *testing.T) {
 	if !strings.Contains(output, "PLATFORM=linux") {
 		t.Fatalf("missing platform output: %s", output)
 	}
+
+	cmd = exec.Command("go", "run", "./cmd/task", "-t", filepath.Join("testdata", "HCLE2ETest", "Taskfile.hcl"), "scoped")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("task run failed: %v\n%s", err, out)
+	}
+	scoped := string(out)
+	if !strings.Contains(scoped, "TEST") {
+		t.Fatalf("missing test output: %s", scoped)
+	}
+	if !strings.Contains(scoped, "DELAYED") {
+		t.Fatalf("missing delayed output: %s", scoped)
+	}
 }

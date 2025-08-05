@@ -26,13 +26,15 @@ task "build" {
 }
 
 task "lint" {
+  vars { MODE = "fast" }
   cmds = ["echo LINT MODE ${vars.MODE}", "echo TWO-DONE"]
 }
 
 task "all" {
   deps = [
-    task("build"),
-    task("lint", {MODE = "fast"})
+    task.build,
+    task.lint,
+    task.scoped,
   ]
   cmds = [
     "echo FINAL ${vars.ORIGINAL}",
@@ -40,5 +42,25 @@ task "all" {
     "echo GREET=${vars.UPPER_GREETING}",
     "echo EXT=${env.EXTENDED}",
     "echo PLATFORM=${vars.SUPPORTED_PLATFORMS[0]}"
+  ]
+}
+
+task "test" {
+  cmds = ["echo 'echo TEST'"]
+}
+
+task "delayed" {
+  vars { MSG = "" }
+  cmds = ["echo 'echo DELAYED ${vars.MSG}'"]
+}
+
+task "scoped" {
+  deps = [
+    task.test,
+    task.delayed,
+  ]
+  cmds = [
+    exec(task.test),
+    exec(task.delayed, { MSG = "DELAYED" }),
   ]
 }

@@ -219,26 +219,54 @@ func parseDeps(expr hcl.Expression, location string) ([]*ast.Dep, error) {
 	}
 	deps := make([]*ast.Dep, 0, len(tuple.Exprs))
 	for _, e := range tuple.Exprs {
-		call, ok := e.(*hclsyntax.FunctionCallExpr)
-		if !ok || call.Name != "task" || len(call.Args) == 0 {
+		switch expr := e.(type) {
+		case *hclsyntax.ScopeTraversalExpr:
+			name, ok := taskTraversalName(expr)
+			if !ok {
+				return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+			}
+			deps = append(deps, &ast.Dep{Task: name})
+		case *hclsyntax.FunctionCallExpr:
+			if expr.Name != "exec" || len(expr.Args) == 0 {
+				return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+			}
+			tExpr, ok := expr.Args[0].(*hclsyntax.ScopeTraversalExpr)
+			if !ok {
+				return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+			}
+			name, ok := taskTraversalName(tExpr)
+			if !ok {
+				return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+			}
+			dep := &ast.Dep{Task: name}
+			if len(expr.Args) > 1 {
+				vars, err := parseVarsExpr(expr.Args[1], location)
+				if err != nil {
+					return nil, err
+				}
+				dep.Vars = vars
+			}
+			deps = append(deps, dep)
+		default:
 			return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
 		}
-		var name string
-		diags := gohcl.DecodeExpression(call.Args[0], nil, &name)
-		if diags.HasErrors() {
-			return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: diags}
-		}
-		dep := &ast.Dep{Task: name}
-		if len(call.Args) > 1 {
-			vars, err := parseVarsExpr(call.Args[1], location)
-			if err != nil {
-				return nil, err
-			}
-			dep.Vars = vars
-		}
-		deps = append(deps, dep)
 	}
 	return deps, nil
+}
+
+func taskTraversalName(expr *hclsyntax.ScopeTraversalExpr) (string, bool) {
+	if len(expr.Traversal) != 2 {
+		return "", false
+	}
+	root, ok := expr.Traversal[0].(hcl.TraverseRoot)
+	if !ok || root.Name != "task" {
+		return "", false
+	}
+	attr, ok := expr.Traversal[1].(hcl.TraverseAttr)
+	if !ok {
+		return "", false
+	}
+	return attr.Name, true
 }
 
 func objectKey(expr hcl.Expression) (string, hcl.Diagnostics) {
