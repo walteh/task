@@ -21,6 +21,10 @@ var (
 		"taskfile.dist.yml",
 		"Taskfile.dist.yaml",
 		"taskfile.dist.yaml",
+		"Taskfile.hcl",
+		"taskfile.hcl",
+		"Taskfile",
+		"taskfile",
 	}
 	allowedContentTypes = []string{
 		"text/plain",
@@ -43,25 +47,28 @@ func RemoteExists(ctx context.Context, u url.URL) (*url.URL, error) {
 		return nil, errors.TaskfileFetchFailedError{URI: u.Redacted()}
 	}
 
-	// Request the given URL
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("checking remote file: %w", ctx.Err())
+	var resp *http.Response
+	if !strings.HasSuffix(u.Path, "/") {
+		// Request the given URL
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("checking remote file: %w", ctx.Err())
+			}
+			return nil, errors.TaskfileFetchFailedError{URI: u.Redacted()}
 		}
-		return nil, errors.TaskfileFetchFailedError{URI: u.Redacted()}
-	}
-	defer resp.Body.Close()
+		defer resp.Body.Close()
 
-	// If the request was successful and the content type is allowed, return the
-	// URL The content type check is to avoid downloading files that are not
-	// Taskfiles It means we can try other files instead of downloading
-	// something that is definitely not a Taskfile
-	contentType := resp.Header.Get("Content-Type")
-	if resp.StatusCode == http.StatusOK && slices.ContainsFunc(allowedContentTypes, func(s string) bool {
-		return strings.Contains(contentType, s)
-	}) {
-		return &u, nil
+		// If the request was successful and the content type is allowed, return the
+		// URL. The content type check is to avoid downloading files that are not
+		// Taskfiles. It means we can try other files instead of downloading
+		// something that is definitely not a Taskfile.
+		contentType := resp.Header.Get("Content-Type")
+		if resp.StatusCode == http.StatusOK && slices.ContainsFunc(allowedContentTypes, func(s string) bool {
+			return strings.Contains(contentType, s)
+		}) {
+			return &u, nil
+		}
 	}
 
 	// If the request was not successful, append the default Taskfile names to

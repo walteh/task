@@ -60,6 +60,8 @@ func NewReader(opts ...ReaderOption) *Reader {
 		loaders: map[string]Loader{
 			".yml":  YAMLLoader{},
 			".yaml": YAMLLoader{},
+			".hcl":  HCLLoader{},
+			"":      HCLLoader{},
 		},
 		insecure:            false,
 		download:            false,
@@ -230,25 +232,24 @@ func (r *Reader) promptf(format string, a ...any) error {
 }
 
 func (r *Reader) include(ctx context.Context, node Node) error {
-	// Create a new vertex for the Taskfile
-	vertex := &ast.TaskfileVertex{
-		URI:      node.Location(),
-		Taskfile: nil,
-	}
-
-	// Add the included Taskfile to the DAG
-	// If the vertex already exists, we return early since its Taskfile has
-	// already been read and its children explored
-	if err := r.graph.AddVertex(vertex); err == graph.ErrVertexAlreadyExists {
-		return nil
-	} else if err != nil {
+	// Read and parse the Taskfile from the file
+	tf, err := r.readNode(ctx, node)
+	if err != nil {
 		return err
 	}
 
-	// Read and parse the Taskfile from the file and add it to the vertex
-	var err error
-	vertex.Taskfile, err = r.readNode(ctx, node)
-	if err != nil {
+	// Create a new vertex for the Taskfile using the resolved location
+	vertex := &ast.TaskfileVertex{
+		URI:      node.Location(),
+		Taskfile: tf,
+	}
+
+	// Add the included Taskfile to the DAG. If the vertex already exists, we
+	// return early since its Taskfile has already been read and its children
+	// explored
+	if err := r.graph.AddVertex(vertex); err == graph.ErrVertexAlreadyExists {
+		return nil
+	} else if err != nil {
 		return err
 	}
 

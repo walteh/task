@@ -48,7 +48,7 @@ complete -c $GO_TASK_PROGNAME -s p -l parallel  -d 'executes tasks provided on c
 complete -c $GO_TASK_PROGNAME -s s -l silent    -d 'disables echoing'
 complete -c $GO_TASK_PROGNAME      -l status    -d 'exits with non-zero exit code if any of the given tasks is not up-to-date'
 complete -c $GO_TASK_PROGNAME      -l summary   -d 'show summary about a task'
-complete -c $GO_TASK_PROGNAME -s t -l taskfile  -d 'choose which Taskfile to run. Defaults to "Taskfile.yml"'
+complete -c $GO_TASK_PROGNAME -s t -l taskfile  -d 'choose which Taskfile to run. Defaults to "Taskfile.yml". Also searches for "Taskfile.yaml", "Taskfile.hcl", and "Taskfile"'
 complete -c $GO_TASK_PROGNAME -s v -l verbose   -d 'enables verbose mode'
 complete -c $GO_TASK_PROGNAME      -l version   -d 'show Task version'
 complete -c $GO_TASK_PROGNAME -s w -l watch     -d 'enables watch of the given task'
