@@ -43,13 +43,4 @@ func (YAMLLoader) Load(data []byte, location string) (*ast.Taskfile, error) {
 }
 
 // HCLLoader implements [Loader] using HCL as the configuration format.
-//
-// Note: HCL parsing is not yet implemented. This loader currently returns a
-// descriptive error so that discovery logic can recognize HCL Taskfiles without
-// breaking program flow.
 type HCLLoader struct{}
-
-// Load returns a not implemented error until HCL support is completed.
-func (HCLLoader) Load(data []byte, location string) (*ast.Taskfile, error) {
-	return nil, errors.New("HCL parsing not implemented")
-}
