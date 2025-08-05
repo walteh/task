@@ -51,17 +51,14 @@ func NewHCLEvaluator(vars, env *ast.Vars, runner TaskRunner) *HCLEvaluator {
 }
 
 func builtinFunctions(runner TaskRunner) map[string]function.Function {
-	funcs := map[string]function.Function{
-		"upper": stringFunc(strings.ToUpper),
-		"lower": stringFunc(strings.ToLower),
-		"join":  joinFunc(),
-		"split": splitFunc(),
-		"env":   envFunc(),
-		"sh":    shellFunc("/bin/sh"),
-		"bash":  shellFunc("/bin/bash"),
-		"zsh":   shellFunc("/bin/zsh"),
-		"tuple": tupleFunc(),
-	}
+
+	funcs := NewFunctionMap()
+	funcs["env"] = envFunc()
+	funcs["sh"] = shellFunc("/bin/sh")
+	funcs["bash"] = shellFunc("/bin/bash")
+	funcs["zsh"] = shellFunc("/bin/zsh")
+	funcs["tuple"] = tupleFunc()
+
 	if runner != nil {
 		funcs["task"] = taskFunc(runner)
 	}
