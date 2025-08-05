@@ -10,6 +10,10 @@
   </p>
 
   <p>
+    Taskfiles can be written in YAML or HCL. By default Task looks for <code>Taskfile.yml</code>, <code>Taskfile.yaml</code>, <code>Taskfile.hcl</code>, or a plain <code>Taskfile</code> in your project.
+  </p>
+
+  <p>
     <a href="https://taskfile.dev/installation/">Installation</a> | <a href="https://taskfile.dev/usage/">Documentation</a> | <a href="https://twitter.com/taskfiledev">Twitter</a> | <a href="https://bsky.app/profile/taskfile.dev">Bluesky</a> | <a href="https://fosstodon.org/@task">Mastodon</a> | <a href="https://discord.gg/6TY36E39UK">Discord</a>
   </p>
 
