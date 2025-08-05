@@ -47,7 +47,7 @@ func (c *Compiler) FastGetVariables(t *ast.Task, call *Call) (*ast.Vars, error) 
 
 func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*ast.Vars, error) {
 	result := env.GetEnviron()
-	evaluator := hclext.NewHCLEvaluator(result)
+	evaluator := hclext.NewHCLEvaluator(result, result, nil)
 	specialVars, err := c.getSpecialVars(t, call)
 	if err != nil {
 		return nil, err

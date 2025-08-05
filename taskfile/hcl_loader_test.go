@@ -14,9 +14,9 @@ func TestHCLLoader(t *testing.T) {
 	data := []byte(`version = "3"
         task "build" {
             desc = "Build the project"
-            cmds = ["echo hello ${USER}"]
-            vars = { USER = "world" }
-            env = { GREETING = "hi" }
+            vars { USER = "world" }
+            env { GREETING = "hi" }
+            cmds = ["echo hello ${vars.USER}"]
         }
     `)
 

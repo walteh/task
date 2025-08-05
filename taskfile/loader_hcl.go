@@ -29,10 +29,10 @@ func (HCLLoader) Load(data []byte, location string) (*ast.Taskfile, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "version", Required: true},
-			{Name: "vars"},
-			{Name: "env"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "vars"},
+			{Type: "env"},
 			{Type: "task", LabelNames: []string{"name"}},
 		},
 	}
@@ -53,15 +53,15 @@ func (HCLLoader) Load(data []byte, location string) (*ast.Taskfile, error) {
 
 	tf := &ast.Taskfile{Version: version, Tasks: ast.NewTasks()}
 
-	if attr, ok := content.Attributes["vars"]; ok {
-		vars, err := parseVars(attr.Expr, location)
+	if blocks := content.Blocks.OfType("vars"); len(blocks) > 0 {
+		vars, err := parseVarsBlock(blocks[0], location)
 		if err != nil {
 			return nil, err
 		}
 		tf.Vars = vars
 	}
-	if attr, ok := content.Attributes["env"]; ok {
-		env, err := parseVars(attr.Expr, location)
+	if blocks := content.Blocks.OfType("env"); len(blocks) > 0 {
+		env, err := parseVarsBlock(blocks[0], location)
 		if err != nil {
 			return nil, err
 		}
@@ -99,8 +99,11 @@ func parseTask(block *hcl.Block, location string) (*ast.Task, error) {
 		Attributes: []hcl.AttributeSchema{
 			{Name: "desc"},
 			{Name: "cmds"},
-			{Name: "vars"},
-			{Name: "env"},
+			{Name: "deps"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "vars"},
+			{Type: "env"},
 		},
 	}
 	content, diags := block.Body.Content(schema)
@@ -127,15 +130,23 @@ func parseTask(block *hcl.Block, location string) (*ast.Task, error) {
 		}
 	}
 
-	if attr, ok := content.Attributes["vars"]; ok {
-		vars, err := parseVars(attr.Expr, location)
+	if attr, ok := content.Attributes["deps"]; ok {
+		deps, err := parseDeps(attr.Expr, location)
+		if err != nil {
+			return nil, err
+		}
+		t.Deps = deps
+	}
+
+	if blocks := content.Blocks.OfType("vars"); len(blocks) > 0 {
+		vars, err := parseVarsBlock(blocks[0], location)
 		if err != nil {
 			return nil, err
 		}
 		t.Vars = vars
 	}
-	if attr, ok := content.Attributes["env"]; ok {
-		env, err := parseVars(attr.Expr, location)
+	if blocks := content.Blocks.OfType("env"); len(blocks) > 0 {
+		env, err := parseVarsBlock(blocks[0], location)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +156,7 @@ func parseTask(block *hcl.Block, location string) (*ast.Task, error) {
 	return t, nil
 }
 
-func parseVars(expr hcl.Expression, location string) (*ast.Vars, error) {
+func parseVarsExpr(expr hcl.Expression, location string) (*ast.Vars, error) {
 	obj, ok := expr.(*hclsyntax.ObjectConsExpr)
 	if !ok {
 		return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
@@ -173,6 +184,61 @@ func parseVars(expr hcl.Expression, location string) (*ast.Vars, error) {
 		vars.Set(key, v)
 	}
 	return vars, nil
+}
+
+func parseVarsBlock(b *hcl.Block, location string) (*ast.Vars, error) {
+	body, ok := b.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+	}
+	vars := ast.NewVars()
+	for name, attr := range body.Attributes {
+		v := ast.Var{}
+		if obj, ok := attr.Expr.(*hclsyntax.ObjectConsExpr); ok {
+			for _, inner := range obj.Items {
+				attrKey, diags := objectKey(inner.KeyExpr)
+				if diags.HasErrors() {
+					return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: diags}
+				}
+				if attrKey == "sh" {
+					v.ShExpr = inner.ValueExpr
+				}
+			}
+		} else {
+			v.Expr = attr.Expr
+		}
+		vars.Set(name, v)
+	}
+	return vars, nil
+}
+
+func parseDeps(expr hcl.Expression, location string) ([]*ast.Dep, error) {
+	tuple, ok := expr.(*hclsyntax.TupleConsExpr)
+	if !ok {
+		return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+	}
+	deps := make([]*ast.Dep, 0, len(tuple.Exprs))
+	for _, e := range tuple.Exprs {
+		call, ok := e.(*hclsyntax.FunctionCallExpr)
+		if !ok || call.Name != "task" || len(call.Args) == 0 {
+			return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: hcl.Diagnostics{}}
+		}
+		var name string
+		diags := gohcl.DecodeExpression(call.Args[0], nil, &name)
+		if diags.HasErrors() {
+			return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(location), Err: diags}
+		}
+		dep := &ast.Dep{Task: name}
+		if len(call.Args) > 1 {
+			vars, err := parseVarsExpr(call.Args[1], location)
+			if err != nil {
+				return nil, err
+			}
+			dep.Vars = vars
+		}
+		deps = append(deps, dep)
+	}
+	return deps, nil
 }
 
 func objectKey(expr hcl.Expression) (string, hcl.Diagnostics) {
