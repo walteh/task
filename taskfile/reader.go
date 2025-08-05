@@ -9,11 +9,9 @@ import (
 
 	"github.com/dominikbraun/graph"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 
 	"github.com/go-task/task/v3/errors"
 	"github.com/go-task/task/v3/internal/env"
-	"github.com/go-task/task/v3/internal/filepathext"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/taskfile/ast"
 )
@@ -48,6 +46,7 @@ type (
 		debugFunc           DebugFunc
 		promptFunc          PromptFunc
 		promptMutex         sync.Mutex
+		loaderRegistry      *LoaderRegistry
 	}
 )
 
@@ -64,6 +63,7 @@ func NewReader(opts ...ReaderOption) *Reader {
 		debugFunc:           nil,
 		promptFunc:          nil,
 		promptMutex:         sync.Mutex{},
+		loaderRegistry:      NewLoaderRegistry(),
 	}
 	r.Options(opts...)
 	return r
@@ -324,40 +324,7 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 		return nil, err
 	}
 
-	var tf ast.Taskfile
-	if err := yaml.Unmarshal(b, &tf); err != nil {
-		// Decode the taskfile and add the file info the any errors
-		taskfileDecodeErr := &errors.TaskfileDecodeError{}
-		if errors.As(err, &taskfileDecodeErr) {
-			snippet := NewSnippet(b,
-				WithLine(taskfileDecodeErr.Line),
-				WithColumn(taskfileDecodeErr.Column),
-				WithPadding(2),
-			)
-			return nil, taskfileDecodeErr.WithFileInfo(node.Location(), snippet.String())
-		}
-		return nil, &errors.TaskfileInvalidError{URI: filepathext.TryAbsToRel(node.Location()), Err: err}
-	}
-
-	// Check that the Taskfile is set and has a schema version
-	if tf.Version == nil {
-		return nil, &errors.TaskfileVersionCheckError{URI: node.Location()}
-	}
-
-	// Set the taskfile/task's locations
-	tf.Location = node.Location()
-	for task := range tf.Tasks.Values(nil) {
-		// If the task is not defined, create a new one
-		if task == nil {
-			task = &ast.Task{}
-		}
-		// Set the location of the taskfile for each task
-		if task.Location.Taskfile == "" {
-			task.Location.Taskfile = tf.Location
-		}
-	}
-
-	return &tf, nil
+	return r.loaderRegistry.LoadTaskfile(ctx, node, b)
 }
 
 func (r *Reader) readNodeContent(ctx context.Context, node Node) ([]byte, error) {
