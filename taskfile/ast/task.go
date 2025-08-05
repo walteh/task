@@ -41,6 +41,7 @@ type Task struct {
 	Run           string
 	Platforms     []*Platform
 	Watch         bool
+	IsHCL         bool
 	Location      *Location
 	// Populated during merging
 	Namespace            string
@@ -214,6 +215,8 @@ func (t *Task) DeepCopy() *Task {
 		Prefix:               t.Prefix,
 		IgnoreError:          t.IgnoreError,
 		Run:                  t.Run,
+		Watch:                t.Watch,
+		IsHCL:                t.IsHCL,
 		IncludeVars:          t.IncludeVars.DeepCopy(),
 		IncludedTaskfileVars: t.IncludedTaskfileVars.DeepCopy(),
 		Platforms:            deepcopy.Slice(t.Platforms),

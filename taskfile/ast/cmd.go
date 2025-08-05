@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"github.com/hashicorp/hcl/v2"
 	"gopkg.in/yaml.v3"
 
 	"github.com/go-task/task/v3/errors"
@@ -10,6 +11,7 @@ import (
 // Cmd is a task command
 type Cmd struct {
 	Cmd         string
+	Expr        hcl.Expression
 	Task        string
 	For         *For
 	Silent      bool
@@ -27,6 +29,7 @@ func (c *Cmd) DeepCopy() *Cmd {
 	}
 	return &Cmd{
 		Cmd:         c.Cmd,
+		Expr:        c.Expr,
 		Task:        c.Task,
 		For:         c.For.DeepCopy(),
 		Silent:      c.Silent,

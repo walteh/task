@@ -14,7 +14,9 @@ func TestHCLLoader(t *testing.T) {
 	data := []byte(`version = "3"
         task "build" {
             desc = "Build the project"
-            cmds = ["echo hello"]
+            cmds = ["echo hello ${USER}"]
+            vars = { USER = "world" }
+            env = { GREETING = "hi" }
         }
     `)
 
@@ -29,7 +31,15 @@ func TestHCLLoader(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "Build the project", build.Desc)
 	require.Len(t, build.Cmds, 1)
-	require.Equal(t, "echo hello", build.Cmds[0].Cmd)
+	require.NotNil(t, build.Cmds[0].Expr)
+
+	v, ok := build.Vars.Get("USER")
+	require.True(t, ok)
+	require.NotNil(t, v.Expr)
+
+	e, ok := build.Env.Get("GREETING")
+	require.True(t, ok)
+	require.NotNil(t, e.Expr)
 }
 
 func TestHCLLoaderInvalid(t *testing.T) {
@@ -45,4 +55,18 @@ func TestHCLLoaderInvalid(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Taskfile.hcl")
 	require.Contains(t, err.Error(), ":2")
+}
+
+func TestHCLLoaderRejectsGoTemplates(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`version = "3"
+        task "demo" {
+            cmds = ["echo {{.FOO}}"]
+        }
+    `)
+
+	loader := HCLLoader{}
+	_, err := loader.Load(data, "Taskfile.hcl")
+	require.Error(t, err)
 }
