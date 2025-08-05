@@ -12,6 +12,7 @@ import (
 	"github.com/go-task/task/v3/internal/env"
 	"github.com/go-task/task/v3/internal/execext"
 	"github.com/go-task/task/v3/internal/filepathext"
+	"github.com/go-task/task/v3/internal/hclext"
 	"github.com/go-task/task/v3/internal/logger"
 	"github.com/go-task/task/v3/internal/templater"
 	"github.com/go-task/task/v3/internal/version"
@@ -46,16 +47,48 @@ func (c *Compiler) FastGetVariables(t *ast.Task, call *Call) (*ast.Vars, error) 
 
 func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*ast.Vars, error) {
 	result := env.GetEnviron()
+	evaluator := hclext.NewHCLEvaluator(result)
 	specialVars, err := c.getSpecialVars(t, call)
 	if err != nil {
 		return nil, err
 	}
 	for k, v := range specialVars {
 		result.Set(k, ast.Var{Value: v})
+		evaluator.SetVar(k, v)
 	}
 
 	getRangeFunc := func(dir string) func(k string, v ast.Var) error {
 		return func(k string, v ast.Var) error {
+			if v.Expr != nil || v.ShExpr != nil {
+				if v.Expr != nil {
+					val, err := evaluator.EvalString(v.Expr)
+					if err != nil {
+						return err
+					}
+					result.Set(k, ast.Var{Value: val})
+					evaluator.SetVar(k, val)
+					return nil
+				}
+				if v.ShExpr != nil {
+					if !evaluateShVars {
+						result.Set(k, ast.Var{Value: ""})
+						evaluator.SetVar(k, "")
+						return nil
+					}
+					cmd, err := evaluator.EvalString(v.ShExpr)
+					if err != nil {
+						return err
+					}
+					static, err := c.HandleDynamicVar(ast.Var{Sh: &cmd}, dir, env.GetFromVars(result))
+					if err != nil {
+						return err
+					}
+					result.Set(k, ast.Var{Value: static})
+					evaluator.SetVar(k, static)
+					return nil
+				}
+			}
+
 			cache := &templater.Cache{Vars: result}
 			// Replace values
 			newVar := templater.ReplaceVar(v, cache)
@@ -63,11 +96,13 @@ func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*
 			// This stops empty interface errors when using the templater to replace values later
 			if !evaluateShVars && newVar.Value == nil {
 				result.Set(k, ast.Var{Value: ""})
+				evaluator.SetVar(k, "")
 				return nil
 			}
 			// If the variable should not be evaluated and it is set, we can set it and return
 			if !evaluateShVars {
 				result.Set(k, ast.Var{Value: newVar.Value})
+				evaluator.SetVar(k, fmt.Sprint(newVar.Value))
 				return nil
 			}
 			// Now we can check for errors since we've handled all the cases when we don't want to evaluate
@@ -77,6 +112,7 @@ func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*
 			// If the variable is already set, we can set it and return
 			if newVar.Value != nil || newVar.Sh == nil {
 				result.Set(k, ast.Var{Value: newVar.Value})
+				evaluator.SetVar(k, fmt.Sprint(newVar.Value))
 				return nil
 			}
 			// If the variable is dynamic, we need to resolve it first
@@ -85,6 +121,7 @@ func (c *Compiler) getVariables(t *ast.Task, call *Call, evaluateShVars bool) (*
 				return err
 			}
 			result.Set(k, ast.Var{Value: static})
+			evaluator.SetVar(k, static)
 			return nil
 		}
 	}
