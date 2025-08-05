@@ -384,6 +384,14 @@ func (r *Reader) readNode(ctx context.Context, node Node) (*ast.Taskfile, error)
 			if task == nil {
 				task = &ast.Task{}
 			}
+
+			// TODO: i am not sure if this is the correct behavior, but it prevents an error for now
+			if task.Location == nil {
+				task.Location = &ast.Location{
+					Taskfile: tf.Location,
+				}
+			}
+
 			// Set the location of the taskfile for each task
 			if task.Location.Taskfile == "" {
 				task.Location.Taskfile = tf.Location
